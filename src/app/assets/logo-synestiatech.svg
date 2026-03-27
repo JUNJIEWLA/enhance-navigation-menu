@@ -1,0 +1,38 @@
+﻿<svg width="600" height="320" viewBox="0 0 600 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logoBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#52B9FF"/>
+      <stop offset="100%" stop-color="#1D8FDE"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="600" height="320" fill="transparent"/>
+
+  <text
+    x="300"
+    y="175"
+    text-anchor="middle"
+    font-family="Segoe UI, Tahoma, Arial, sans-serif"
+    font-size="74"
+    font-style="italic"
+    font-weight="800"
+    letter-spacing="1"
+    fill="#0B5D3E"
+  >
+    SynestiaTech
+  </text>
+
+  <text
+    x="300"
+    y="165"
+    text-anchor="middle"
+    font-family="Segoe UI, Tahoma, Arial, sans-serif"
+    font-size="74"
+    font-style="italic"
+    font-weight="800"
+    letter-spacing="1"
+    fill="url(#logoBlue)"
+  >
+    SynestiaTech
+  </text>
+</svg>
