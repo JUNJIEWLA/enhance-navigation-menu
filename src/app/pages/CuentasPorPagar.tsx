@@ -18,6 +18,18 @@ const FieldError = ({ msg }: { msg?: string }) =>
 export function CuentasPorPagar() {
   const { facturas, suplidores, pagos, agregarFactura, editarFactura, eliminarFactura } = useData();
 
+  const parseInputDate = (value: string) => {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const toInputDateValue = (value: Date) => {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'Todos' | 'Pendiente' | 'Parcial' | 'Pagado'>('Todos');
 
@@ -86,7 +98,7 @@ export function CuentasPorPagar() {
 
     if (!datos.fechaVencimiento) {
       err.fechaVencimiento = 'La fecha de vencimiento es obligatoria.';
-    } else if (datos.fechaEmision && new Date(datos.fechaVencimiento) < new Date(datos.fechaEmision)) {
+    } else if (datos.fechaEmision && datos.fechaVencimiento < datos.fechaEmision) {
       err.fechaVencimiento = 'La fecha de vencimiento no puede ser anterior a la de emisión.';
     }
 
@@ -127,6 +139,10 @@ export function CuentasPorPagar() {
     new Intl.DateTimeFormat('es-DO', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(date));
 
   const isVencida = (fecha: Date) => new Date(fecha) < hoy;
+  const totalPagadoDeFactura = (facturaId: string) =>
+    pagos
+      .filter((p) => p.facturaId === facturaId)
+      .reduce((sum, p) => sum + p.monto, 0);
 
   // ─── Nueva Factura ────────────────────────────────────────────────────────
   const abrirDialogNuevaFactura = () => {
@@ -155,8 +171,8 @@ export function CuentasPorPagar() {
       numeroExterno: nuevaFactura.numeroExterno || undefined,
       suplidorId: nuevaFactura.suplidorId,
       suplidorNombre: suplidor.nombre,
-      fechaEmision: new Date(nuevaFactura.fechaEmision),
-      fechaVencimiento: new Date(nuevaFactura.fechaVencimiento),
+      fechaEmision: parseInputDate(nuevaFactura.fechaEmision),
+      fechaVencimiento: parseInputDate(nuevaFactura.fechaVencimiento),
       montoTotal: monto,
       balancePendiente: monto,
       estado: 'Pendiente'
@@ -175,8 +191,8 @@ export function CuentasPorPagar() {
       numeroFactura: factura.numeroFactura,
       numeroExterno: (factura as any).numeroExterno || '',
       suplidorId: factura.suplidorId,
-      fechaEmision: new Date(factura.fechaEmision).toISOString().split('T')[0],
-      fechaVencimiento: new Date(factura.fechaVencimiento).toISOString().split('T')[0],
+      fechaEmision: toInputDateValue(new Date(factura.fechaEmision)),
+      fechaVencimiento: toInputDateValue(new Date(factura.fechaVencimiento)),
       montoTotal: factura.montoTotal.toString()
     });
     ejecutarDespuesDeCerrarMenu(() => setDialogEditarFactura(true));
@@ -190,11 +206,12 @@ export function CuentasPorPagar() {
     if (!suplidor) return;
 
     editarFactura(facturaEditando.id, {
+      numeroFactura: facturaEditando.numeroFactura,
       numeroExterno: facturaEditando.numeroExterno || undefined,
       suplidorId: facturaEditando.suplidorId,
       suplidorNombre: suplidor.nombre,
-      fechaEmision: new Date(facturaEditando.fechaEmision),
-      fechaVencimiento: new Date(facturaEditando.fechaVencimiento),
+      fechaEmision: parseInputDate(facturaEditando.fechaEmision),
+      fechaVencimiento: parseInputDate(facturaEditando.fechaVencimiento),
       montoTotal: parseFloat(facturaEditando.montoTotal)
     } as any);
 
@@ -220,6 +237,7 @@ export function CuentasPorPagar() {
     const factura = facturas.find(f => f.id === facturaId);
     if (!factura) return;
     const pagosFactura = pagos.filter(p => p.facturaId === facturaId);
+    const totalPagadoFactura = pagosFactura.reduce((sum, p) => sum + p.monto, 0);
     const numeroExterno = (factura as any).numeroExterno;
 
     const contenidoHTML = `
@@ -266,7 +284,7 @@ export function CuentasPorPagar() {
         <div class="seccion"><h3>Resumen Financiero</h3>
           <div class="totales">
             <div class="total-row"><span>Monto Total:</span><span>${formatCurrency(factura.montoTotal)}</span></div>
-            <div class="total-row" style="color:green"><span>Total Pagado:</span><span>${formatCurrency(factura.montoTotal - factura.balancePendiente)}</span></div>
+            <div class="total-row" style="color:green"><span>Total Pagado:</span><span>${formatCurrency(totalPagadoFactura)}</span></div>
             <div class="total-row total-final"><span>Balance Pendiente:</span><span>${formatCurrency(factura.balancePendiente)}</span></div>
           </div>
         </div>
@@ -730,7 +748,7 @@ export function CuentasPorPagar() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Monto Pagado:</span>
-                  <span className="font-medium text-green-600">{formatCurrency(facturaDetalle.montoTotal - facturaDetalle.balancePendiente)}</span>
+                  <span className="font-medium text-green-600">{formatCurrency(totalPagadoDeFactura(facturaDetalle.id))}</span>
                 </div>
                 <div className="flex justify-between text-lg">
                   <span className="font-semibold">Balance Pendiente:</span>

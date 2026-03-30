@@ -86,6 +86,40 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const [historialEventos, setHistorialEventos] = useState<EventoHistorial[]>([]);
   const [cargando, setCargando] = useState(true);
 
+  const parseDateValue = (value: unknown): Date => {
+    if (value instanceof Date) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (dateOnlyMatch) {
+        const year = Number(dateOnlyMatch[1]);
+        const month = Number(dateOnlyMatch[2]) - 1;
+        const day = Number(dateOnlyMatch[3]);
+        return new Date(year, month, day);
+      }
+
+      return new Date(value);
+    }
+
+    return new Date();
+  };
+
+  const toDateOnlyString = (value: Date) => {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const calcularEstadoDesdeBalance = (montoTotal: number, totalPagado: number): 'Pendiente' | 'Parcial' | 'Pagado' => {
+    const balance = Math.max(montoTotal - totalPagado, 0);
+    if (balance <= 0) return 'Pagado';
+    if (totalPagado > 0) return 'Parcial';
+    return 'Pendiente';
+  };
+
   const obtenerUsuarioActual = () => {
     if (typeof window === 'undefined') return 'Usuario del sistema';
     return localStorage.getItem('cxp_usuario') || 'Usuario del sistema';
@@ -176,29 +210,6 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         })));
       }
 
-      // Cargar facturas — excluye Anuladas de la carga inicial
-      const { data: facData } = await supabase
-        .from('facturas')
-        .select('*, suplidores(nombre)')
-        .eq('empresa_id', perfil.empresaId)
-        .neq('estado', 'Anulada')                                      // ← [NUEVO] soft delete filter
-        .order('created_at', { ascending: false });
-
-      if (facData) {
-        setFacturas(facData.map(f => ({
-          id: f.id,
-          numeroFactura: f.numero || '',
-          numeroExterno: f.numero_externo || '',                        // ← [NUEVO]
-          suplidorId: f.suplidor_id,
-          suplidorNombre: f.suplidores?.nombre || '',
-          fechaEmision: new Date(f.fecha),
-          fechaVencimiento: new Date(f.fecha_vencimiento),
-          montoTotal: f.monto,
-          balancePendiente: f.balance_pendiente,
-          estado: f.estado as 'Pendiente' | 'Parcial' | 'Pagado' | 'Anulada'
-        })));
-      }
-
       // Cargar pagos
       const { data: pagData } = await supabase
         .from('pagos')
@@ -212,12 +223,49 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
           facturaId: p.factura_id,
           numeroFactura: p.facturas?.numero || '',
           suplidorNombre: p.facturas?.suplidores?.nombre || '',
-          fecha: new Date(p.fecha),
+          fecha: parseDateValue(p.fecha),
           monto: p.monto,
           metodoPago: p.metodo_pago as 'Cheque' | 'Transferencia' | 'Efectivo',
           referencia: p.nota || '',
           notas: p.nota || ''
         })));
+      }
+
+      // Cargar facturas — excluye Anuladas de la carga inicial.
+      // Recalcula balance/estado desde los pagos reales para evitar inconsistencias previas.
+      const { data: facData } = await supabase
+        .from('facturas')
+        .select('*, suplidores(nombre)')
+        .eq('empresa_id', perfil.empresaId)
+        .neq('estado', 'Anulada')
+        .order('created_at', { ascending: false });
+
+      if (facData) {
+        const totalPagadoPorFactura = (pagData || []).reduce<Record<string, number>>((acc, pago) => {
+          const facturaId = pago.factura_id as string;
+          acc[facturaId] = (acc[facturaId] || 0) + Number(pago.monto || 0);
+          return acc;
+        }, {});
+
+        setFacturas(facData.map(f => {
+          const montoTotal = Number(f.monto || 0);
+          const totalPagado = totalPagadoPorFactura[f.id] || 0;
+          const balancePendiente = Math.max(montoTotal - totalPagado, 0);
+          const estado = calcularEstadoDesdeBalance(montoTotal, totalPagado);
+
+          return {
+            id: f.id,
+            numeroFactura: f.numero || '',
+            numeroExterno: f.numero_externo || '',
+            suplidorId: f.suplidor_id,
+            suplidorNombre: f.suplidores?.nombre || '',
+            fechaEmision: parseDateValue(f.fecha),
+            fechaVencimiento: parseDateValue(f.fecha_vencimiento),
+            montoTotal,
+            balancePendiente,
+            estado,
+          };
+        }));
       }
 
       // Cargar historial
@@ -326,8 +374,8 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         numero: factura.numeroFactura,
         numero_externo: factura.numeroExterno || null,                 // ← [NUEVO]
         suplidor_id: factura.suplidorId,
-        fecha: factura.fechaEmision,
-        fecha_vencimiento: factura.fechaVencimiento,
+        fecha: toDateOnlyString(factura.fechaEmision),
+        fecha_vencimiento: toDateOnlyString(factura.fechaVencimiento),
         monto: factura.montoTotal,
         balance_pendiente: factura.balancePendiente,
         estado: factura.estado
@@ -347,26 +395,45 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
   const editarFactura = async (id: string, facturaActualizada: Partial<Factura>) => {
     if (!perfil?.empresaId) return;
 
+    const facturaAnterior = facturas.find(f => f.id === id);
+    if (!facturaAnterior) return;
+
+    const totalPagado = pagos
+      .filter(p => p.facturaId === id)
+      .reduce((sum, p) => sum + p.monto, 0);
+
+    const montoTotalActualizado = facturaActualizada.montoTotal ?? facturaAnterior.montoTotal;
+    const balancePendienteActualizado = Math.max(montoTotalActualizado - totalPagado, 0);
+    const estadoActualizado = calcularEstadoDesdeBalance(montoTotalActualizado, totalPagado);
+
     const { error } = await supabase
       .from('facturas')
       .update({
         // numero excluido intencionalmente — el ID interno FACT-XX es inmutable
         numero_externo: facturaActualizada.numeroExterno ?? null,      // ← [NUEVO]
         suplidor_id: facturaActualizada.suplidorId,
-        fecha: facturaActualizada.fechaEmision,
-        fecha_vencimiento: facturaActualizada.fechaVencimiento,
+        fecha: facturaActualizada.fechaEmision ? toDateOnlyString(facturaActualizada.fechaEmision) : undefined,
+        fecha_vencimiento: facturaActualizada.fechaVencimiento ? toDateOnlyString(facturaActualizada.fechaVencimiento) : undefined,
         monto: facturaActualizada.montoTotal,
-        balance_pendiente: facturaActualizada.balancePendiente,
-        estado: facturaActualizada.estado
+        balance_pendiente: balancePendienteActualizado,
+        estado: estadoActualizado
       })
       .eq('empresa_id', perfil.empresaId)
       .eq('id', id);
 
     if (!error) {
-      setFacturas(prev => prev.map(f => f.id === id ? { ...f, ...facturaActualizada } : f));
+      setFacturas(prev => prev.map(f => f.id === id
+        ? {
+            ...f,
+            ...facturaActualizada,
+            montoTotal: montoTotalActualizado,
+            balancePendiente: balancePendienteActualizado,
+            estado: estadoActualizado,
+          }
+        : f));
       await registrarEvento({
         evento: 'Edición de Factura',
-        descripcion: `Se actualizó la factura ${facturaActualizada.numeroFactura || id}.`,
+        descripcion: `Se actualizó la factura ${facturaAnterior.numeroFactura}.`,
       });
     }
   };
@@ -419,8 +486,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       // Actualizar balance de la factura
       const factura = facturas.find(f => f.id === pago.facturaId);
       if (factura) {
-        const nuevoBalance = factura.balancePendiente - pago.monto;
-        const nuevoEstado = nuevoBalance <= 0 ? 'Pagado' : 'Parcial';
+        const totalPagadoPrevio = pagos
+          .filter(p => p.facturaId === pago.facturaId)
+          .reduce((sum, p) => sum + p.monto, 0);
+        const totalPagadoActual = totalPagadoPrevio + pago.monto;
+        const nuevoBalance = Math.max(factura.montoTotal - totalPagadoActual, 0);
+        const nuevoEstado = calcularEstadoDesdeBalance(factura.montoTotal, totalPagadoActual);
 
         await supabase
           .from('facturas')
@@ -430,7 +501,7 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
         setFacturas(prev => prev.map(f =>
           f.id === pago.facturaId
-            ? { ...f, balancePendiente: nuevoBalance, estado: nuevoEstado as 'Pagado' | 'Parcial' }
+            ? { ...f, balancePendiente: nuevoBalance, estado: nuevoEstado }
             : f
         ));
       }

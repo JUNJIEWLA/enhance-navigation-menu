@@ -6,17 +6,33 @@ import { Label } from '../components/ui/label';
 import { Search } from 'lucide-react';
 
 export function Historial() {
-  const { historialEventos } = useData();
+  const { historialEventos, facturas } = useData();
   const [busqueda, setBusqueda] = useState('');
+
+  const facturaIdInternoPorUuid = useMemo(() => {
+    return new Map(facturas.map((factura) => [factura.id, factura.numeroFactura]));
+  }, [facturas]);
+
+  const reemplazarUuidPorIdInterno = (texto: string) => {
+    return texto.replace(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
+      (uuid) => facturaIdInternoPorUuid.get(uuid) || uuid,
+    );
+  };
 
   const eventosFiltrados = useMemo(() => {
     return historialEventos
       .filter((item) => {
-        const texto = `${item.evento} ${item.descripcion} ${item.usuario}`.toLowerCase();
+        const descripcionNormalizada = reemplazarUuidPorIdInterno(item.descripcion);
+        const texto = `${item.evento} ${descripcionNormalizada} ${item.usuario}`.toLowerCase();
         return texto.includes(busqueda.toLowerCase());
       })
+      .map((item) => ({
+        ...item,
+        descripcion: reemplazarUuidPorIdInterno(item.descripcion),
+      }))
       .sort((a, b) => b.fechaHora.getTime() - a.fechaHora.getTime());
-  }, [historialEventos, busqueda]);
+  }, [historialEventos, busqueda, facturaIdInternoPorUuid]);
 
   const formatDateTime = (value: Date) => {
     return new Intl.DateTimeFormat('es-DO', {
