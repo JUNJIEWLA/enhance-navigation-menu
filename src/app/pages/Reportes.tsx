@@ -38,7 +38,6 @@ import {
 
 type TipoReporte = 'resumen-mensual' | 'por-suplidor' | 'flujo-caja' | 'vencimientos';
 type FormatoExportacion = 'pdf' | 'excel' | 'csv';
-
 type FilaExportacion = Record<string, string | number>;
 
 const NOMBRE_MES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -76,17 +75,12 @@ export function Reportes() {
   const [enviandoCorreo, setEnviandoCorreo] = useState(false);
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-DO', {
-      style: 'currency',
-      currency: 'DOP'
-    }).format(value);
+    return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value);
   };
 
   const formatDate = (value: Date) => {
     return new Intl.DateTimeFormat('es-DO', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
+      year: 'numeric', month: '2-digit', day: '2-digit'
     }).format(new Date(value));
   };
 
@@ -111,14 +105,9 @@ export function Reportes() {
   const buildLastSixMonths = () => {
     const { year, monthIndex } = obtenerRangoMes();
     const base = new Date(year, monthIndex, 1);
-
     return Array.from({ length: 6 }, (_, idx) => {
       const d = new Date(base.getFullYear(), base.getMonth() - (5 - idx), 1);
-      return {
-        monthLabel: NOMBRE_MES_CORTO[d.getMonth()],
-        monthIndex: d.getMonth(),
-        year: d.getFullYear()
-      };
+      return { monthLabel: NOMBRE_MES_CORTO[d.getMonth()], monthIndex: d.getMonth(), year: d.getFullYear() };
     });
   };
 
@@ -132,24 +121,30 @@ export function Reportes() {
     [pagos, mesSeleccionado]
   );
 
-  // Datos para gráficos
+  const getBalancePendienteFactura = (factura: { id: string; montoTotal: number; balancePendiente?: number }) => {
+    if (typeof factura.balancePendiente === 'number') {
+      return factura.balancePendiente;
+    }
+
+    const totalPagadoFactura = pagos
+      .filter((p) => p.facturaId === factura.id)
+      .reduce((sum, p) => sum + p.monto, 0);
+
+    return Math.max(factura.montoTotal - totalPagadoFactura, 0);
+  };
+
   const pagosPorMes = () => {
-    const meses = buildLastSixMonths();
-    return meses.map(({ monthLabel, monthIndex, year }) => {
+    return buildLastSixMonths().map(({ monthLabel, monthIndex, year }) => {
       const pagosMes = pagos.filter(p => {
         const fecha = new Date(p.fecha);
         return fecha.getMonth() === monthIndex && fecha.getFullYear() === year;
       });
-      return {
-        mes: monthLabel,
-        pagado: pagosMes.reduce((sum, p) => sum + p.monto, 0)
-      };
+      return { mes: monthLabel, pagado: pagosMes.reduce((sum, p) => sum + p.monto, 0) };
     });
   };
 
   const facturasVsPagesPorMes = () => {
-    const meses = buildLastSixMonths();
-    return meses.map(({ monthLabel, monthIndex, year }) => {
+    return buildLastSixMonths().map(({ monthLabel, monthIndex, year }) => {
       const facturasMes = facturas.filter(f => {
         const fecha = new Date(f.fechaEmision);
         return fecha.getMonth() === monthIndex && fecha.getFullYear() === year;
@@ -166,16 +161,23 @@ export function Reportes() {
     });
   };
 
+  // ── FIX: calcula balancePendiente real sumando de facturas no pagadas por suplidor ──
   const deudaPorSuplidorData = () => {
-    return suplidores.map(s => {
-      const deuda = facturas
-        .filter(f => f.suplidorId === s.id && f.estado !== 'Pagado')
-        .reduce((sum, f) => sum + f.balancePendiente, 0);
-      return {
-        suplidor: s.nombre.length > 20 ? s.nombre.substring(0, 20) + '...' : s.nombre,
-        deuda
-      };
-    }).filter(d => d.deuda > 0);
+    return suplidores
+      .map(s => {
+        const deuda = facturas
+          .filter(f => f.suplidorId === s.id && f.estado !== 'Pagado')
+          .reduce((sum, f) => {
+            const balance = getBalancePendienteFactura(f);
+            return sum + balance;
+          }, 0);
+        return {
+          suplidor: s.nombre.length > 22 ? s.nombre.substring(0, 22) + '…' : s.nombre,
+          deuda
+        };
+      })
+      .filter(d => d.deuda > 0)
+      .sort((a, b) => b.deuda - a.deuda);
   };
 
   const resumenPorSuplidor = useMemo(() => {
@@ -186,28 +188,26 @@ export function Reportes() {
       const totalPag = pagosSupl.reduce((sum, p) => sum + p.monto, 0);
       const pendiente = facturasSupl
         .filter((f) => f.estado !== 'Pagado')
-        .reduce((sum, f) => sum + f.balancePendiente, 0);
-
-      return {
-        suplidor,
-        facturasSupl,
-        totalFact,
-        totalPag,
-        pendiente
-      };
+        .reduce((sum, f) => {
+          const balance = getBalancePendienteFactura(f);
+          return sum + balance;
+        }, 0);
+      return { suplidor, facturasSupl, totalFact, totalPag, pendiente };
     });
   }, [facturas, pagos, suplidores]);
 
-  // Estadísticas generales del período seleccionado
   const totalFacturado = facturasPeriodo.reduce((sum, f) => sum + f.montoTotal, 0);
   const totalPagado = pagosPeriodo.reduce((sum, p) => sum + p.monto, 0);
   const totalPendiente = facturasPeriodo
     .filter(f => f.estado !== 'Pagado')
-    .reduce((sum, f) => sum + f.balancePendiente, 0);
+    .reduce((sum, f) => {
+      const balance = getBalancePendienteFactura(f);
+      return sum + balance;
+    }, 0);
 
-  const facturasVencidas = facturasPeriodo.filter(f => {
-    return f.estado !== 'Pagado' && new Date(f.fechaVencimiento) < new Date();
-  }).length;
+  const facturasVencidas = facturasPeriodo.filter(f =>
+    f.estado !== 'Pagado' && new Date(f.fechaVencimiento) < new Date()
+  ).length;
 
   const getFilasReporte = (): FilaExportacion[] => {
     if (tipoReporte === 'resumen-mensual') {
@@ -218,7 +218,6 @@ export function Reportes() {
         diferencia: Number((item.facturado - item.pagado).toFixed(2))
       }));
     }
-
     if (tipoReporte === 'por-suplidor') {
       return resumenPorSuplidor.map((r) => ({
         suplidor: r.suplidor.nombre,
@@ -228,7 +227,6 @@ export function Reportes() {
         balancePendiente: Number(r.pendiente.toFixed(2))
       }));
     }
-
     if (tipoReporte === 'flujo-caja') {
       return pagosPeriodo
         .slice()
@@ -242,16 +240,11 @@ export function Reportes() {
           monto: Number(p.monto.toFixed(2))
         }));
     }
-
     return facturas
       .filter((f) => f.estado !== 'Pagado')
       .map((f) => {
         const fechaVencimiento = new Date(f.fechaVencimiento);
-        const diasVencida = Math.max(
-          0,
-          Math.floor((Date.now() - fechaVencimiento.getTime()) / (1000 * 60 * 60 * 24))
-        );
-
+        const diasVencida = Math.max(0, Math.floor((Date.now() - fechaVencimiento.getTime()) / (1000 * 60 * 60 * 24)));
         return {
           suplidor: f.suplidorNombre,
           factura: f.numeroFactura,
@@ -261,7 +254,7 @@ export function Reportes() {
           estado: f.estado
         };
       })
-      .sort((a, b) => b.diasVencida - a.diasVencida);
+      .sort((a, b) => (b.diasVencida as number) - (a.diasVencida as number));
   };
 
   const getNombreReporte = () => {
@@ -271,22 +264,15 @@ export function Reportes() {
       'flujo-caja': 'Flujo de Caja',
       vencimientos: 'Analisis de Vencimientos'
     };
-
     return map[tipoReporte];
   };
 
-  const getNombreArchivoBase = () => {
-    return `reporte_${tipoReporte}_${mesSeleccionado}`;
-  };
+  const getNombreArchivoBase = () => `reporte_${tipoReporte}_${mesSeleccionado}`;
 
-  const getResumenTexto = () => {
-    return `Total Facturado: ${formatCurrency(totalFacturado)} | Total Pagado: ${formatCurrency(totalPagado)} | Pendiente: ${formatCurrency(totalPendiente)} | Facturas Vencidas: ${facturasVencidas}`;
-  };
+  const getResumenTexto = () =>
+    `Total Facturado: ${formatCurrency(totalFacturado)} | Total Pagado: ${formatCurrency(totalPagado)} | Pendiente: ${formatCurrency(totalPendiente)} | Facturas Vencidas: ${facturasVencidas}`;
 
-  const getHeaders = (filas: FilaExportacion[]) => {
-    if (!filas.length) return [];
-    return Object.keys(filas[0]);
-  };
+  const getHeaders = (filas: FilaExportacion[]) => (!filas.length ? [] : Object.keys(filas[0]));
 
   const exportarExcel = (filas: FilaExportacion[]) => {
     const ws = XLSX.utils.json_to_sheet(filas);
@@ -300,7 +286,6 @@ export function Reportes() {
     const csv = XLSX.utils.sheet_to_csv(ws);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', `${getNombreArchivoBase()}.csv`);
@@ -313,8 +298,7 @@ export function Reportes() {
   const loadImageAsDataUrl = async (imageUrl: string): Promise<string> => {
     const response = await fetch(imageUrl);
     const blob = await response.blob();
-
-    return await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
       reader.onerror = () => reject(new Error('No se pudo cargar la imagen del logo.'));
@@ -331,13 +315,11 @@ export function Reportes() {
     doc.setFillColor(30, 64, 175);
     doc.rect(0, 0, 297, 24, 'F');
     doc.addImage(logoDataUrl, 'PNG', 12, 5, 12, 12);
-
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
     doc.text('Plaza Max', 28, 14);
     doc.setFontSize(10);
     doc.text('Reporte financiero profesional', 28, 19);
-
     doc.setTextColor(17, 24, 39);
     doc.setFontSize(14);
     doc.text(titulo, 14, 34);
@@ -355,19 +337,11 @@ export function Reportes() {
           return value;
         })
       ),
-      styles: {
-        fontSize: 8,
-        cellPadding: 2
-      },
-      headStyles: {
-        fillColor: [30, 64, 175],
-        textColor: [255, 255, 255]
-      },
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255] },
       didDrawPage: (data) => {
-        const pageSize = doc.internal.pageSize;
-        const pageHeight = pageSize.getHeight();
+        const pageHeight = doc.internal.pageSize.getHeight();
         const pageNumber = doc.getNumberOfPages();
-
         doc.setFontSize(8);
         doc.setTextColor(107, 114, 128);
         doc.text(
@@ -381,93 +355,61 @@ export function Reportes() {
     doc.save(`${getNombreArchivoBase()}.pdf`);
   };
 
-  const handleImprimir = () => {
-    window.print();
-  };
+  const handleImprimir = () => window.print();
 
   const buildCorreoHtml = (filas: FilaExportacion[]) => {
     const headers = getHeaders(filas);
     const headHtml = headers.map((h) => `<th style="text-align:left;padding:8px;background:#1e40af;color:#fff;">${COLUMNA_TRADUCIDA[h] || h}</th>`).join('');
-    const rowsHtml = filas
-      .slice(0, 30)
-      .map((fila) => {
-        const celdas = headers
-          .map((h) => {
-            const value = fila[h];
-            const printable = typeof value === 'number' ? formatCurrency(value) : String(value);
-            return `<td style="padding:8px;border-bottom:1px solid #e5e7eb;">${printable}</td>`;
-          })
-          .join('');
-        return `<tr>${celdas}</tr>`;
-      })
-      .join('');
-
+    const rowsHtml = filas.slice(0, 30).map((fila) => {
+      const celdas = headers.map((h) => {
+        const value = fila[h];
+        const printable = typeof value === 'number' ? formatCurrency(value) : String(value);
+        return `<td style="padding:8px;border-bottom:1px solid #e5e7eb;">${printable}</td>`;
+      }).join('');
+      return `<tr>${celdas}</tr>`;
+    }).join('');
     return `
       <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.4;">
-        <h2 style="margin:0 0 8px 0;color:#1e40af;">Plaza Max - ${getNombreReporte()}</h2>
-        <p style="margin:0 0 8px 0;"><strong>Periodo:</strong> ${getPeriodoTexto()}</p>
-        <p style="margin:0 0 16px 0;"><strong>Resumen:</strong> ${getResumenTexto()}</p>
+        <h2 style="color:#1e40af;">Plaza Max - ${getNombreReporte()}</h2>
+        <p><strong>Periodo:</strong> ${getPeriodoTexto()}</p>
+        <p><strong>Resumen:</strong> ${getResumenTexto()}</p>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <thead><tr>${headHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
-        <p style="margin-top:12px;color:#6b7280;font-size:12px;">Vista limitada a 30 filas. Para el detalle completo utilice la exportacion PDF/Excel.</p>
-      </div>
-    `;
+        <p style="color:#6b7280;font-size:12px;">Vista limitada a 30 filas.</p>
+      </div>`;
   };
 
   const enviarConMailto = (filas: FilaExportacion[]) => {
-    const body = `${mensajeCorreo}\n\n${getNombreReporte()} - ${getPeriodoTexto()}\n${getResumenTexto()}\n\nFilas incluidas en este resumen: ${Math.min(filas.length, 30)} de ${filas.length}.`;
-    const mailtoUrl = `mailto:${encodeURIComponent(correoDestino)}?subject=${encodeURIComponent(asuntoCorreo)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailtoUrl;
+    const body = `${mensajeCorreo}\n\n${getNombreReporte()} - ${getPeriodoTexto()}\n${getResumenTexto()}\n\nFilas: ${Math.min(filas.length, 30)} de ${filas.length}.`;
+    window.location.href = `mailto:${encodeURIComponent(correoDestino)}?subject=${encodeURIComponent(asuntoCorreo)}&body=${encodeURIComponent(body)}`;
   };
 
   const handleEnviarCorreo = async () => {
     const filas = getFilasReporte();
-
-    if (!correoDestino.trim()) {
-      alert('Ingrese un correo destino para enviar el reporte.');
-      return;
-    }
-
-    if (!filas.length) {
-      alert('No hay datos para enviar en el reporte seleccionado.');
-      return;
-    }
-
+    if (!correoDestino.trim()) { alert('Ingrese un correo destino.'); return; }
+    if (!filas.length) { alert('No hay datos para enviar.'); return; }
     setEnviandoCorreo(true);
-
     try {
       const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID as string | undefined;
       const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID as string | undefined;
       const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY as string | undefined;
-
       if (serviceId && templateId && publicKey) {
-        await emailjs.send(
-          serviceId,
-          templateId,
-          {
-            to_email: correoDestino,
-            subject: asuntoCorreo,
-            message: mensajeCorreo,
-            report_name: getNombreReporte(),
-            period: getPeriodoTexto(),
-            summary: getResumenTexto(),
-            report_html: buildCorreoHtml(filas)
-          },
-          { publicKey }
-        );
-
-        alert('Reporte enviado por correo correctamente.');
+        await emailjs.send(serviceId, templateId, {
+          to_email: correoDestino, subject: asuntoCorreo, message: mensajeCorreo,
+          report_name: getNombreReporte(), period: getPeriodoTexto(),
+          summary: getResumenTexto(), report_html: buildCorreoHtml(filas)
+        }, { publicKey });
+        alert('Reporte enviado correctamente.');
       } else {
         enviarConMailto(filas);
-        alert('No se detecto configuracion de EmailJS. Se abrio su cliente de correo como alternativa.');
+        alert('No se detectó configuración de EmailJS. Se abrió su cliente de correo.');
       }
-
       setDialogCorreoAbierto(false);
     } catch (error) {
-      console.error('Error enviando reporte por correo:', error);
-      alert('No fue posible enviar el reporte. Verifique la configuracion de EmailJS o use la opcion de exportar.');
+      console.error('Error enviando reporte:', error);
+      alert('No fue posible enviar el reporte. Verifique la configuración de EmailJS.');
     } finally {
       setEnviandoCorreo(false);
     }
@@ -475,25 +417,15 @@ export function Reportes() {
 
   const handleExportarReporte = async () => {
     const filas = getFilasReporte();
-
-    if (!filas.length) {
-      alert('No hay datos disponibles para exportar en el período y tipo de reporte seleccionados.');
-      return;
-    }
-
+    if (!filas.length) { alert('No hay datos para exportar en el período seleccionado.'); return; }
     setExportando(true);
-
     try {
-      if (formatoExportacion === 'pdf') {
-        await exportarPDF(filas);
-      } else if (formatoExportacion === 'excel') {
-        exportarExcel(filas);
-      } else {
-        exportarCSV(filas);
-      }
+      if (formatoExportacion === 'pdf') await exportarPDF(filas);
+      else if (formatoExportacion === 'excel') exportarExcel(filas);
+      else exportarCSV(filas);
     } catch (error) {
-      console.error('Error exportando reporte:', error);
-      alert('Ocurrio un error al exportar el reporte. Intente nuevamente.');
+      console.error('Error exportando:', error);
+      alert('Ocurrió un error al exportar. Intente nuevamente.');
     } finally {
       setExportando(false);
     }
@@ -506,17 +438,18 @@ export function Reportes() {
         <p className="text-gray-500 mt-1">Análisis y exportación de datos</p>
       </div>
 
-      {/* Selector de tipo de reporte */}
+      {/* ── Configuración de Reporte ─────────────────────────────────────────── */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Configuración de Reporte</CardTitle>
           <CardDescription>Seleccione el tipo de reporte que desea generar</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Fila 1: selectores */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <Label htmlFor="tipoReporte">Tipo de Reporte</Label>
-              <Select value={tipoReporte} onValueChange={setTipoReporte}>
+              <Select value={tipoReporte} onValueChange={(v) => setTipoReporte(v as TipoReporte)}>
                 <SelectTrigger id="tipoReporte">
                   <SelectValue />
                 </SelectTrigger>
@@ -541,7 +474,7 @@ export function Reportes() {
 
             <div>
               <Label htmlFor="formato">Formato de Exportación</Label>
-              <Select value={formatoExportacion} onValueChange={(value) => setFormatoExportacion(value as FormatoExportacion)}>
+              <Select value={formatoExportacion} onValueChange={(v) => setFormatoExportacion(v as FormatoExportacion)}>
                 <SelectTrigger id="formato">
                   <SelectValue />
                 </SelectTrigger>
@@ -552,95 +485,83 @@ export function Reportes() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
 
-            <div className="flex items-end gap-2">
-              <Button onClick={handleExportarReporte} className="flex-1" disabled={exportando}>
-                {formatoExportacion === 'excel' ? (
-                  <FileSpreadsheet className="size-4 mr-2" />
-                ) : formatoExportacion === 'pdf' ? (
-                  <FileType2 className="size-4 mr-2" />
-                ) : (
-                  <Download className="size-4 mr-2" />
-                )}
-                {exportando ? 'Exportando...' : `Exportar ${formatoExportacion.toUpperCase()}`}
-              </Button>
+          {/* Fila 2: botones de acción — siempre dentro del card */}
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Button onClick={handleExportarReporte} disabled={exportando} className="min-w-[160px]">
+              {formatoExportacion === 'excel' ? (
+                <FileSpreadsheet className="size-4 mr-2" />
+              ) : formatoExportacion === 'pdf' ? (
+                <FileType2 className="size-4 mr-2" />
+              ) : (
+                <Download className="size-4 mr-2" />
+              )}
+              {exportando ? 'Exportando…' : `Exportar ${formatoExportacion.toUpperCase()}`}
+            </Button>
 
-              <Button variant="outline" onClick={handleImprimir}>
-                <Printer className="size-4 mr-2" />
-                Imprimir
-              </Button>
+            <Button variant="outline" onClick={handleImprimir}>
+              <Printer className="size-4 mr-2" />
+              Imprimir
+            </Button>
 
-              <Dialog open={dialogCorreoAbierto} onOpenChange={setDialogCorreoAbierto}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setAsuntoCorreo(`Reporte ${getNombreReporte()} - ${getPeriodoTexto()}`);
-                      setMensajeCorreo('Adjunto el resumen ejecutivo del reporte solicitado.');
-                    }}
-                  >
-                    <Mail className="size-4 mr-2" />
-                    Enviar
-                  </Button>
-                </DialogTrigger>
+            <Dialog open={dialogCorreoAbierto} onOpenChange={setDialogCorreoAbierto}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setAsuntoCorreo(`Reporte ${getNombreReporte()} - ${getPeriodoTexto()}`);
+                    setMensajeCorreo('Adjunto el resumen ejecutivo del reporte solicitado.');
+                  }}
+                >
+                  <Mail className="size-4 mr-2" />
+                  Enviar
+                </Button>
+              </DialogTrigger>
 
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Enviar Reporte por Correo</DialogTitle>
-                    <DialogDescription>
-                      Envie un resumen profesional del reporte seleccionado. Para adjuntos completos, utilice exportacion PDF/Excel.
-                    </DialogDescription>
-                  </DialogHeader>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Enviar Reporte por Correo</DialogTitle>
+                  <DialogDescription>
+                    Envíe un resumen profesional del reporte seleccionado. Para adjuntos completos, use exportación PDF/Excel.
+                  </DialogDescription>
+                </DialogHeader>
 
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="correoDestino">Correo Destino</Label>
-                      <Input
-                        id="correoDestino"
-                        type="email"
-                        value={correoDestino}
-                        onChange={(e) => setCorreoDestino(e.target.value)}
-                        placeholder="gerencia@plazamax.com"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="asuntoCorreo">Asunto</Label>
-                      <Input
-                        id="asuntoCorreo"
-                        value={asuntoCorreo}
-                        onChange={(e) => setAsuntoCorreo(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="mensajeCorreo">Mensaje</Label>
-                      <Textarea
-                        id="mensajeCorreo"
-                        value={mensajeCorreo}
-                        onChange={(e) => setMensajeCorreo(e.target.value)}
-                        className="min-h-24"
-                      />
-                    </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="correoDestino">Correo Destino</Label>
+                    <Input
+                      id="correoDestino"
+                      type="email"
+                      value={correoDestino}
+                      onChange={(e) => setCorreoDestino(e.target.value)}
+                      placeholder="gerencia@plazamax.com"
+                    />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="asuntoCorreo">Asunto</Label>
+                    <Input id="asuntoCorreo" value={asuntoCorreo} onChange={(e) => setAsuntoCorreo(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mensajeCorreo">Mensaje</Label>
+                    <Textarea id="mensajeCorreo" value={mensajeCorreo} onChange={(e) => setMensajeCorreo(e.target.value)} className="min-h-24" />
+                  </div>
+                </div>
 
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setDialogCorreoAbierto(false)}>
-                      Cancelar
-                    </Button>
-                    <Button onClick={handleEnviarCorreo} disabled={enviandoCorreo}>
-                      <Send className="size-4 mr-2" />
-                      {enviandoCorreo ? 'Enviando...' : 'Enviar Correo'}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDialogCorreoAbierto(false)}>Cancelar</Button>
+                  <Button onClick={handleEnviarCorreo} disabled={enviandoCorreo}>
+                    <Send className="size-4 mr-2" />
+                    {enviandoCorreo ? 'Enviando…' : 'Enviar Correo'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardContent>
       </Card>
 
-      {/* Estadísticas Principales */}
+      {/* ── Estadísticas del período ─────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -687,7 +608,7 @@ export function Reportes() {
         </Card>
       </div>
 
-      {/* Gráficos de Análisis */}
+      {/* ── Gráficos ─────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <Card>
           <CardHeader>
@@ -699,33 +620,14 @@ export function Reportes() {
               <AreaChart data={facturasVsPagesPorMes()}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" style={{ fontSize: '12px' }} />
-                <YAxis 
+                <YAxis
                   tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
                   style={{ fontSize: '12px' }}
                 />
-                <Tooltip 
-                  formatter={(value: number) => formatCurrency(value)}
-                  labelStyle={{ color: '#000' }}
-                />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
                 <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="facturado"
-                  stackId="1"
-                  stroke="#3b82f6"
-                  fill="#3b82f6"
-                  fillOpacity={0.6}
-                  name="Facturado"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="pagado"
-                  stackId="2"
-                  stroke="#10b981"
-                  fill="#10b981"
-                  fillOpacity={0.6}
-                  name="Pagado"
-                />
+                <Area type="monotone" dataKey="facturado" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} name="Facturado" />
+                <Area type="monotone" dataKey="pagado" stackId="2" stroke="#10b981" fill="#10b981" fillOpacity={0.6} name="Pagado" />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -741,62 +643,61 @@ export function Reportes() {
               <LineChart data={pagosPorMes()}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" style={{ fontSize: '12px' }} />
-                <YAxis 
+                <YAxis
                   tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
                   style={{ fontSize: '12px' }}
                 />
-                <Tooltip 
-                  formatter={(value: number) => formatCurrency(value)}
-                  labelStyle={{ color: '#000' }}
-                />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
                 <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="pagado"
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  name="Pagado"
-                  dot={{ r: 5 }}
-                />
+                <Line type="monotone" dataKey="pagado" stroke="#10b981" strokeWidth={3} name="Pagado" dot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
 
-      {/* Deuda por Suplidor */}
+      {/* ── FIX: layout="vertical" para barras horizontales con categorías en Y ── */}
       <Card>
         <CardHeader>
           <CardTitle>Balance Pendiente por Suplidor</CardTitle>
           <CardDescription>Distribución de deuda actual</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={deudaPorSuplidorData()} layout="horizontal">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                type="number"
-                tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-                style={{ fontSize: '12px' }}
-              />
-              <YAxis 
-                dataKey="suplidor" 
-                type="category"
-                width={150}
-                style={{ fontSize: '11px' }}
-              />
-              <Tooltip 
-                formatter={(value: number) => formatCurrency(value)}
-                labelStyle={{ color: '#000' }}
-              />
-              <Legend />
-              <Bar dataKey="deuda" fill="#ef4444" name="Deuda Pendiente" />
-            </BarChart>
-          </ResponsiveContainer>
+          {deudaPorSuplidorData().length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-gray-400 text-sm">
+              No hay balances pendientes registrados
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(300, deudaPorSuplidorData().length * 48)}>
+              {/* layout vertical para barras horizontales con categorias en Y */}
+              <BarChart
+                data={deudaPorSuplidorData()}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 160, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
+                  style={{ fontSize: '11px' }}
+                />
+                <YAxis
+                  dataKey="suplidor"
+                  type="category"
+                  width={155}
+                  style={{ fontSize: '11px' }}
+                  tick={{ fill: '#374151' }}
+                />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Legend />
+                <Bar dataKey="deuda" fill="#ef4444" name="Deuda Pendiente" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
-      {/* Tabla resumen */}
+      {/* ── Tabla resumen por suplidor ───────────────────────────────────────── */}
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>Resumen por Suplidor</CardTitle>
@@ -815,19 +716,15 @@ export function Reportes() {
                 </tr>
               </thead>
               <tbody>
-                {resumenPorSuplidor.map(({ suplidor, facturasSupl, totalFact, totalPag, pendiente }) => {
-                  return (
-                    <tr key={suplidor.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm font-medium">{suplidor.nombre}</td>
-                      <td className="py-3 px-4 text-sm text-center">{facturasSupl.length}</td>
-                      <td className="py-3 px-4 text-sm text-right">{formatCurrency(totalFact)}</td>
-                      <td className="py-3 px-4 text-sm text-right text-green-600">{formatCurrency(totalPag)}</td>
-                      <td className="py-3 px-4 text-sm text-right font-semibold text-red-600">
-                        {formatCurrency(pendiente)}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {resumenPorSuplidor.map(({ suplidor, facturasSupl, totalFact, totalPag, pendiente }) => (
+                  <tr key={suplidor.id} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4 text-sm font-medium">{suplidor.nombre}</td>
+                    <td className="py-3 px-4 text-sm text-center">{facturasSupl.length}</td>
+                    <td className="py-3 px-4 text-sm text-right">{formatCurrency(totalFact)}</td>
+                    <td className="py-3 px-4 text-sm text-right text-green-600">{formatCurrency(totalPag)}</td>
+                    <td className="py-3 px-4 text-sm text-right font-semibold text-red-600">{formatCurrency(pendiente)}</td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot className="bg-gray-50 font-bold">
                 <tr className="border-t-2">
@@ -835,7 +732,16 @@ export function Reportes() {
                   <td className="py-3 px-4 text-sm text-center">{facturas.length}</td>
                   <td className="py-3 px-4 text-sm text-right">{formatCurrency(facturas.reduce((sum, f) => sum + f.montoTotal, 0))}</td>
                   <td className="py-3 px-4 text-sm text-right text-green-600">{formatCurrency(pagos.reduce((sum, p) => sum + p.monto, 0))}</td>
-                  <td className="py-3 px-4 text-sm text-right text-red-600">{formatCurrency(facturas.filter((f) => f.estado !== 'Pagado').reduce((sum, f) => sum + f.balancePendiente, 0))}</td>
+                  <td className="py-3 px-4 text-sm text-right text-red-600">
+                    {formatCurrency(
+                      facturas
+                        .filter((f) => f.estado !== 'Pagado')
+                        .reduce((sum, f) => {
+                          const balance = getBalancePendienteFactura(f);
+                          return sum + balance;
+                        }, 0)
+                    )}
+                  </td>
                 </tr>
               </tfoot>
             </table>
