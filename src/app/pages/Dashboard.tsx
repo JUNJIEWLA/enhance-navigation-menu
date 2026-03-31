@@ -86,7 +86,7 @@ export function Dashboard() {
     { 
       name: 'Pagado', 
       value: facturas.filter(f => f.estado === 'Pagado').length,
-      monto: 0
+      monto: facturas.filter(f => f.estado === 'Pagado').reduce((sum, f) => sum + f.balancePendiente, 0)
     }
   ];
 
