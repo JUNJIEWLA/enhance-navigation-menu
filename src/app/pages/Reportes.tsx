@@ -49,6 +49,7 @@ const COLUMNA_TRADUCIDA: Record<string, string> = {
   diferencia: 'Diferencia',
   suplidor: 'Suplidor',
   totalFacturas: 'Total Facturas',
+  totalFacturasPagadas: 'Total Facturas Pagadas',
   totalFacturado: 'Total Facturado',
   totalPagado: 'Total Pagado',
   balancePendiente: 'Balance Pendiente',
@@ -183,6 +184,7 @@ export function Reportes() {
   const resumenPorSuplidor = useMemo(() => {
     return suplidores.map((suplidor) => {
       const facturasSupl = facturas.filter((f) => f.suplidorId === suplidor.id);
+      const totalFacturasPagadas = facturasSupl.filter((f) => f.estado === 'Pagado').length;
       const totalFact = facturasSupl.reduce((sum, f) => sum + f.montoTotal, 0);
       const pagosSupl = pagos.filter((p) => facturasSupl.some((f) => f.id === p.facturaId));
       const totalPag = pagosSupl.reduce((sum, p) => sum + p.monto, 0);
@@ -192,7 +194,7 @@ export function Reportes() {
           const balance = getBalancePendienteFactura(f);
           return sum + balance;
         }, 0);
-      return { suplidor, facturasSupl, totalFact, totalPag, pendiente };
+      return { suplidor, facturasSupl, totalFacturasPagadas, totalFact, totalPag, pendiente };
     });
   }, [facturas, pagos, suplidores]);
 
@@ -222,6 +224,7 @@ export function Reportes() {
       return resumenPorSuplidor.map((r) => ({
         suplidor: r.suplidor.nombre,
         totalFacturas: r.facturasSupl.length,
+        totalFacturasPagadas: r.totalFacturasPagadas,
         totalFacturado: Number(r.totalFact.toFixed(2)),
         totalPagado: Number(r.totalPag.toFixed(2)),
         balancePendiente: Number(r.pendiente.toFixed(2))
@@ -709,17 +712,19 @@ export function Reportes() {
               <thead className="bg-gray-50">
                 <tr className="border-b">
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Suplidor</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Total Facturas</th>
+                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Total Facturas</th>                
+                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Total Facturas Pagadas</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Total Facturado</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Total Pagado</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Balance Pendiente</th>
                 </tr>
               </thead>
               <tbody>
-                {resumenPorSuplidor.map(({ suplidor, facturasSupl, totalFact, totalPag, pendiente }) => (
+                {resumenPorSuplidor.map(({ suplidor, facturasSupl, totalFacturasPagadas, totalFact, totalPag, pendiente }) => (
                   <tr key={suplidor.id} className="border-b hover:bg-gray-50">
                     <td className="py-3 px-4 text-sm font-medium">{suplidor.nombre}</td>
                     <td className="py-3 px-4 text-sm text-center">{facturasSupl.length}</td>
+                    <td className="py-3 px-4 text-sm text-center">{totalFacturasPagadas}</td>
                     <td className="py-3 px-4 text-sm text-right">{formatCurrency(totalFact)}</td>
                     <td className="py-3 px-4 text-sm text-right text-green-600">{formatCurrency(totalPag)}</td>
                     <td className="py-3 px-4 text-sm text-right font-semibold text-red-600">{formatCurrency(pendiente)}</td>
@@ -730,6 +735,7 @@ export function Reportes() {
                 <tr className="border-t-2">
                   <td className="py-3 px-4 text-sm">TOTAL</td>
                   <td className="py-3 px-4 text-sm text-center">{facturas.length}</td>
+                  <td className="py-3 px-4 text-sm text-center">{facturas.filter((f) => f.estado === 'Pagado').length}</td>
                   <td className="py-3 px-4 text-sm text-right">{formatCurrency(facturas.reduce((sum, f) => sum + f.montoTotal, 0))}</td>
                   <td className="py-3 px-4 text-sm text-right text-green-600">{formatCurrency(pagos.reduce((sum, p) => sum + p.monto, 0))}</td>
                   <td className="py-3 px-4 text-sm text-right text-red-600">
