@@ -130,7 +130,19 @@ export function CuentasPorPagar() {
       const matchEstado = filtroEstado === 'Todos' || f.estado === filtroEstado;
       return matchBusqueda && matchEstado;
     })
-    .sort((a, b) => new Date(a.fechaVencimiento).getTime() - new Date(b.fechaVencimiento).getTime());
+    .sort((a, b) => {
+      const prioridad = (f: typeof a) => {
+      if (f.estado === 'Pagado') return 2;
+      if (new Date(f.fechaVencimiento) < hoy) return 0; // vencidas = urgente
+      return 1; // pendientes normales
+    };
+
+  const diff = prioridad(a) - prioridad(b);
+  if (diff !== 0) return diff;
+
+  // Dentro de cada grupo, las más próximas a vencer primero
+  return new Date(a.fechaVencimiento).getTime() - new Date(b.fechaVencimiento).getTime();
+});
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value);

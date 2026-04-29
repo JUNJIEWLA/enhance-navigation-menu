@@ -192,7 +192,9 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{formatCurrency(totalPagadoMes)}</div>
-            <p className="text-xs text-gray-500 mt-1">Marzo 2026</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {hoy.toLocaleString('es-DO', { month: 'long', year: 'numeric' })}
+            </p>
           </CardContent>
         </Card>
       </div>

@@ -66,7 +66,12 @@ const COLUMNA_TRADUCIDA: Record<string, string> = {
 export function Reportes() {
   const { facturas, pagos, suplidores } = useData();
   const [tipoReporte, setTipoReporte] = useState<TipoReporte>('resumen-mensual');
-  const [mesSeleccionado, setMesSeleccionado] = useState('2026-03');
+  const [mesSeleccionado, setMesSeleccionado] = useState(() => {
+    const hoy = new Date();
+    const year = hoy.getFullYear();
+    const month = String(hoy.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  });
   const [formatoExportacion, setFormatoExportacion] = useState<FormatoExportacion>('pdf');
   const [exportando, setExportando] = useState(false);
   const [dialogCorreoAbierto, setDialogCorreoAbierto] = useState(false);
