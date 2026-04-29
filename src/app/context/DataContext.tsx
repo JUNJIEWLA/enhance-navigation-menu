@@ -294,7 +294,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   // ─── Suplidores ────────────────────────────────────────────────────────────
   const agregarSuplidor = async (suplidor: Omit<Suplidor, 'id'>) => {
-    if (!perfil?.empresaId) return;
+    if (!perfil?.empresaId) {
+      throw new Error('No se pudo identificar la empresa activa. Inicie sesión nuevamente.');
+    }
 
     const { data, error } = await supabase
       .from('suplidores')
@@ -309,6 +311,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       }])
       .select()
       .single();
+
+    if (error) {
+      throw new Error(error.message || 'No fue posible crear el suplidor.');
+    }
 
     if (!error && data) {
       setSuplidores(prev => [{ ...suplidor, id: data.id }, ...prev]);

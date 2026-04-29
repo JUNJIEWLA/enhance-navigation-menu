@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useData } from '../context/DataContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -24,6 +25,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 export function Dashboard() {
   const { facturas, pagos } = useData();
   const [facturaIdPago, setFacturaIdPago] = useState<string | null>(null);
+  const hasData = facturas.length > 0 || pagos.length > 0;
 
   const hoy = new Date();
   const inicioSemana = new Date(hoy);
@@ -111,10 +113,42 @@ export function Dashboard() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Vista panorámica de tus cuentas por pagar</p>
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-500 mt-1">Vista panorámica de tus cuentas por pagar</p>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <Button asChild variant="outline" className="border-gray-300 bg-white">
+            <Link to="/suplidores">Crear suplidor</Link>
+          </Button>
+          <Button asChild className="bg-blue-600 hover:bg-blue-700">
+            <Link to="/cuentas-por-pagar">Crear factura</Link>
+          </Button>
+        </div>
       </div>
+
+      {!hasData ? (
+        <Card className="mb-8 border-dashed border-2 border-blue-200 bg-blue-50/60">
+          <CardContent className="py-8">
+            <div className="max-w-2xl">
+              <h2 className="text-xl font-semibold text-gray-900">Su empresa aún no tiene registros</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Puede comenzar creando suplidores y luego registrar facturas para esta empresa. Los datos se guardan separados por empresa y no se mezclan con otras cuentas.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button asChild variant="outline" className="border-gray-300 bg-white">
+                  <Link to="/suplidores">Ir a suplidores</Link>
+                </Button>
+                <Button asChild className="bg-blue-600 hover:bg-blue-700">
+                  <Link to="/cuentas-por-pagar">Ir a facturas</Link>
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

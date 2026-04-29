@@ -52,6 +52,20 @@ const mapPerfil = (row: any): PerfilUsuario => {
   };
 };
 
+const fetchPerfilDirecto = async (targetUserId: string): Promise<PerfilUsuario | null> => {
+  const { data, error } = await supabase
+    .from('perfiles')
+    .select('user_id, empresa_id, rol, username, empresas(nombre)')
+    .eq('user_id', targetUserId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return mapPerfil(data);
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -73,29 +87,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setPerfilLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('obtener_perfil_actual');
+      const perfilData = Array.isArray(data) ? data[0] : data;
 
-    const { data, error } = await supabase.rpc('obtener_perfil_actual');
+      if (!error && perfilData && perfilData.user_id === targetUserId) {
+        const nextPerfil = mapPerfil(perfilData);
+        setPerfil(nextPerfil);
+        localStorage.setItem(CURRENT_USERNAME_KEY, nextPerfil.username);
+        return;
+      }
 
-    const perfilData = Array.isArray(data) ? data[0] : data;
+      const perfilDirecto = await fetchPerfilDirecto(targetUserId);
 
-    if (error || !perfilData) {
+      if (perfilDirecto) {
+        setPerfil(perfilDirecto);
+        localStorage.setItem(CURRENT_USERNAME_KEY, perfilDirecto.username);
+        return;
+      }
+
       setPerfil(null);
       localStorage.removeItem(CURRENT_USERNAME_KEY);
+    } finally {
       setPerfilLoading(false);
-      return;
     }
-
-    if (perfilData.user_id !== targetUserId) {
-      setPerfil(null);
-      localStorage.removeItem(CURRENT_USERNAME_KEY);
-      setPerfilLoading(false);
-      return;
-    }
-
-    const nextPerfil = mapPerfil(perfilData);
-    setPerfil(nextPerfil);
-    localStorage.setItem(CURRENT_USERNAME_KEY, nextPerfil.username);
-    setPerfilLoading(false);
   };
 
   useEffect(() => {

@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { Suplidor, useData } from '../context/DataContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Plus, Search, MoreVertical, Edit, Trash2, Phone, Mail, MapPin } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
+import { useAuth } from '../context/AuthContext';
 
 export function Suplidores() {
   const { suplidores, facturas, agregarSuplidor, editarSuplidor, eliminarSuplidor, contarFacturasDeSuplidor } = useData();
+  const { perfil } = useAuth();
   const [busqueda, setBusqueda] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogEliminarOpen, setDialogEliminarOpen] = useState(false);
@@ -18,8 +21,10 @@ export function Suplidores() {
   const [validandoEliminacion, setValidandoEliminacion] = useState(false);
   const [facturasAsociadas, setFacturasAsociadas] = useState(0);
   const [suplidorAEliminar, setSuplidorAEliminar] = useState<Suplidor | null>(null);
+  const [guardando, setGuardando] = useState(false);
   // ── [CAMBIO 3] Error de validación para el campo Nombre ──────────────────
   const [errorNombre, setErrorNombre] = useState('');
+  const [errorOperacion, setErrorOperacion] = useState('');
   const [suplidorActual, setSuplidorActual] = useState({
     id: '',
     // ── [CAMBIO 1] Campo código añadido al estado ────────────────────────
@@ -35,11 +40,17 @@ export function Suplidores() {
   const generarCodigo = (): string => {
     const numerosExistentes = suplidores
       .map(s => {
-        const match = (s as any).codigo?.match(/^SUP-(\d+)$/);
+        const codigo = (s as any).codigo || '';
+        const match = codigo.match(/^SUP-(?:[A-Z0-9]+-)?(\d+)$/);
         return match ? parseInt(match[1], 10) : 0;
       });
     const siguiente = numerosExistentes.length > 0 ? Math.max(...numerosExistentes) + 1 : 1;
-    return `SUP-${String(siguiente).padStart(3, '0')}`;
+
+    const empresaPrefix = perfil?.empresaId
+      ? perfil.empresaId.replace(/-/g, '').slice(0, 8).toUpperCase()
+      : 'GLOBAL';
+
+    return `SUP-${empresaPrefix}-${String(siguiente).padStart(3, '0')}`;
   };
 
   const suplidoresFiltrados = suplidores.filter(s =>
@@ -71,6 +82,7 @@ export function Suplidores() {
   const abrirDialogNuevo = () => {
     setEditando(false);
     setErrorNombre('');
+    setErrorOperacion('');
     setSuplidorActual({
       id: '',
       // ── [CAMBIO 1] Se genera el código automáticamente al abrir el formulario
@@ -87,35 +99,54 @@ export function Suplidores() {
   const abrirDialogEditar = (suplidor: typeof suplidores[0]) => {
     setEditando(true);
     setErrorNombre('');
+    setErrorOperacion('');
     setSuplidorActual(suplidor as any);
     ejecutarDespuesDeCerrarMenu(() => setDialogOpen(true));
   };
 
-  const handleGuardar = () => {
+  const handleGuardar = async () => {
+    setGuardando(true);
+    setErrorOperacion('');
+
     // ── [CAMBIO 3] Validación: Nombre no puede estar vacío ni solo espacios ─
     if (!suplidorActual.nombre.trim()) {
       setErrorNombre('El nombre del suplidor es obligatorio.');
+      setGuardando(false);
       return;
     }
 
-    if (!suplidorActual.ruc) return;
+    if (!suplidorActual.ruc.trim()) {
+      setErrorOperacion('El RNC / Cédula es obligatorio para crear o editar un suplidor.');
+      setGuardando(false);
+      return;
+    }
 
     setErrorNombre('');
 
-    if (editando) {
-      editarSuplidor(suplidorActual.id, suplidorActual);
-    } else {
-      agregarSuplidor({
-        codigo: suplidorActual.codigo,
-        nombre: suplidorActual.nombre.trim(),
-        ruc: suplidorActual.ruc,
-        telefono: suplidorActual.telefono,
-        email: suplidorActual.email,
-        direccion: suplidorActual.direccion
-      } as any);
-    }
+    try {
+      if (editando) {
+        await editarSuplidor(suplidorActual.id, {
+          ...suplidorActual,
+          nombre: suplidorActual.nombre.trim(),
+          ruc: suplidorActual.ruc.trim()
+        });
+      } else {
+        await agregarSuplidor({
+          codigo: suplidorActual.codigo,
+          nombre: suplidorActual.nombre.trim(),
+          ruc: suplidorActual.ruc.trim(),
+          telefono: suplidorActual.telefono,
+          email: suplidorActual.email,
+          direccion: suplidorActual.direccion
+        } as any);
+      }
 
-    setDialogOpen(false);
+      setDialogOpen(false);
+    } catch (error) {
+      setErrorOperacion(error instanceof Error ? error.message : 'No fue posible guardar el suplidor.');
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const abrirConfirmacionEliminar = async (suplidor: Suplidor) => {
@@ -256,6 +287,13 @@ export function Suplidores() {
             </DialogDescription>
           </DialogHeader>
 
+          {errorOperacion ? (
+            <Alert variant="destructive">
+              <AlertTitle>Error al guardar</AlertTitle>
+              <AlertDescription>{errorOperacion}</AlertDescription>
+            </Alert>
+          ) : null}
+
           <div className="space-y-4">
             {/* ── [CAMBIO 2] Campo Código: solo lectura en Creación y Edición ── */}
             <div>
@@ -296,6 +334,7 @@ export function Suplidores() {
                 value={suplidorActual.ruc}
                 onChange={(e) => setSuplidorActual({ ...suplidorActual, ruc: e.target.value })}
                 placeholder="131-45678-9"
+                className={errorOperacion ? 'border-red-500 focus-visible:ring-red-500' : ''}
               />
             </div>
 
@@ -335,8 +374,8 @@ export function Suplidores() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleGuardar}>
-              {editando ? 'Actualizar' : 'Guardar'}
+            <Button onClick={handleGuardar} disabled={guardando}>
+              {guardando ? 'Guardando...' : editando ? 'Actualizar' : 'Guardar'}
             </Button>
           </DialogFooter>
         </DialogContent>
