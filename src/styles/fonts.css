@@ -1,6 +1,6 @@
 @font-face {
 	font-family: 'Noto Sans SC';
-	src: url('/fonts/NotoSansSC-VariableFont_wght.ttf') format('truetype');
+	src: url('/fonts/NotoSansSC-Regular.ttf') format('truetype');
 	font-weight: 100 900;
 	font-style: normal;
 	font-display: swap;
@@ -9,4 +9,18 @@
 /* Make it available under a simple stack */
 :root {
 	--font-sans: 'Noto Sans SC', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+}
+
+/* Los inputs de contraseña, fecha y mes deben usar la fuente del sistema
+   para que los bullets y los nombres de mes se vean correctamente */
+input[type="password"],
+input[type="date"],
+input[type="month"],
+input[type="time"],
+input[type="datetime-local"] {
+	font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+}
+
+input[type="password"] {
+	letter-spacing: 0.1em;
 }

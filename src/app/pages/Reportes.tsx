@@ -636,7 +636,7 @@ export function Reportes() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div>
+            <div className="space-y-1">
               <Label htmlFor="tipoReporte">Tipo de Reporte</Label>
               <Select value={tipoReporte} onValueChange={(v) => setTipoReporte(v as TipoReporte)}>
                 <SelectTrigger id="tipoReporte"><SelectValue /></SelectTrigger>
@@ -649,17 +649,18 @@ export function Reportes() {
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-1">
               <Label htmlFor="periodo">Período</Label>
               <Input
                 id="periodo"
                 type="month"
                 value={mesSeleccionado}
                 onChange={(e) => setMesSeleccionado(e.target.value)}
+                style={{ fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif" }}
               />
             </div>
 
-            <div>
+            <div className="space-y-1">
               <Label htmlFor="formato">Formato de Exportación</Label>
               <Select value={formatoExportacion} onValueChange={(v) => setFormatoExportacion(v as FormatoExportacion)}>
                 <SelectTrigger id="formato"><SelectValue /></SelectTrigger>
