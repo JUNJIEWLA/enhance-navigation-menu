@@ -18,9 +18,10 @@ import {
 import { Download, FileText, BarChart3, TrendingUp, Calendar, FileSpreadsheet, FileType2, Printer, Mail, Send } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
 import * as XLSX from 'xlsx';
 import emailjs from '@emailjs/browser';
-import logoPlazaMax from '../assets/icon_factura.png';
+import { useAuth } from '../context/AuthContext';
 import {
   BarChart,
   Bar,
@@ -42,6 +43,15 @@ type FilaExportacion = Record<string, string | number>;
 
 const NOMBRE_MES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
+// Campos que son conteos (enteros) y NO deben llevar símbolo de moneda
+const CAMPOS_CONTEO = new Set([
+  'totalFacturas',
+  'totalFacturasPagadas',
+  'diasVencida'
+]);
+
+const LOGO_REPORTE_URL = new URL('../assets/icon_factura.png', import.meta.url).href;
+
 const COLUMNA_TRADUCIDA: Record<string, string> = {
   mes: 'Mes',
   facturado: 'Facturado',
@@ -49,22 +59,23 @@ const COLUMNA_TRADUCIDA: Record<string, string> = {
   diferencia: 'Diferencia',
   suplidor: 'Suplidor',
   totalFacturas: 'Total Facturas',
-  totalFacturasPagadas: 'Total Facturas Pagadas',
+  totalFacturasPagadas: 'Facturas Pagadas',
   totalFacturado: 'Total Facturado',
   totalPagado: 'Total Pagado',
   balancePendiente: 'Balance Pendiente',
   fecha: 'Fecha',
   factura: 'Factura',
-  metodo: 'Metodo',
+  metodo: 'Método',
   referencia: 'Referencia',
   monto: 'Monto',
   fechaVencimiento: 'Fecha Vencimiento',
-  diasVencida: 'Dias Vencida',
+  diasVencida: 'Días Vencida',
   estado: 'Estado'
 };
 
 export function Reportes() {
   const { facturas, pagos, suplidores } = useData();
+  const { perfil } = useAuth();
   const [tipoReporte, setTipoReporte] = useState<TipoReporte>('resumen-mensual');
   const [mesSeleccionado, setMesSeleccionado] = useState(() => {
     const hoy = new Date();
@@ -80,15 +91,15 @@ export function Reportes() {
   const [mensajeCorreo, setMensajeCorreo] = useState('');
   const [enviandoCorreo, setEnviandoCorreo] = useState(false);
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value);
-  };
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value);
 
-  const formatDate = (value: Date) => {
-    return new Intl.DateTimeFormat('es-DO', {
+  const nombreEmpresa = perfil?.nombreEmpresa?.trim() || 'Empresa del usuario';
+
+  const formatDate = (value: Date) =>
+    new Intl.DateTimeFormat('es-DO', {
       year: 'numeric', month: '2-digit', day: '2-digit'
     }).format(new Date(value));
-  };
 
   const getPeriodoTexto = () => {
     const [year, month] = mesSeleccionado.split('-').map(Number);
@@ -128,29 +139,24 @@ export function Reportes() {
   );
 
   const getBalancePendienteFactura = (factura: { id: string; montoTotal: number; balancePendiente?: number }) => {
-    if (typeof factura.balancePendiente === 'number') {
-      return factura.balancePendiente;
-    }
-
+    if (typeof factura.balancePendiente === 'number') return factura.balancePendiente;
     const totalPagadoFactura = pagos
       .filter((p) => p.facturaId === factura.id)
       .reduce((sum, p) => sum + p.monto, 0);
-
     return Math.max(factura.montoTotal - totalPagadoFactura, 0);
   };
 
-  const pagosPorMes = () => {
-    return buildLastSixMonths().map(({ monthLabel, monthIndex, year }) => {
+  const pagosPorMes = () =>
+    buildLastSixMonths().map(({ monthLabel, monthIndex, year }) => {
       const pagosMes = pagos.filter(p => {
         const fecha = new Date(p.fecha);
         return fecha.getMonth() === monthIndex && fecha.getFullYear() === year;
       });
       return { mes: monthLabel, pagado: pagosMes.reduce((sum, p) => sum + p.monto, 0) };
     });
-  };
 
-  const facturasVsPagesPorMes = () => {
-    return buildLastSixMonths().map(({ monthLabel, monthIndex, year }) => {
+  const facturasVsPagesPorMes = () =>
+    buildLastSixMonths().map(({ monthLabel, monthIndex, year }) => {
       const facturasMes = facturas.filter(f => {
         const fecha = new Date(f.fechaEmision);
         return fecha.getMonth() === monthIndex && fecha.getFullYear() === year;
@@ -165,18 +171,13 @@ export function Reportes() {
         pagado: pagosMes.reduce((sum, p) => sum + p.monto, 0)
       };
     });
-  };
 
-  // ── FIX: calcula balancePendiente real sumando de facturas no pagadas por suplidor ──
-  const deudaPorSuplidorData = () => {
-    return suplidores
+  const deudaPorSuplidorData = () =>
+    suplidores
       .map(s => {
         const deuda = facturas
           .filter(f => f.suplidorId === s.id && f.estado !== 'Pagado')
-          .reduce((sum, f) => {
-            const balance = getBalancePendienteFactura(f);
-            return sum + balance;
-          }, 0);
+          .reduce((sum, f) => sum + getBalancePendienteFactura(f), 0);
         return {
           suplidor: s.nombre.length > 22 ? s.nombre.substring(0, 22) + '…' : s.nombre,
           deuda
@@ -184,7 +185,6 @@ export function Reportes() {
       })
       .filter(d => d.deuda > 0)
       .sort((a, b) => b.deuda - a.deuda);
-  };
 
   const resumenPorSuplidor = useMemo(() => {
     return suplidores.map((suplidor) => {
@@ -195,10 +195,7 @@ export function Reportes() {
       const totalPag = pagosSupl.reduce((sum, p) => sum + p.monto, 0);
       const pendiente = facturasSupl
         .filter((f) => f.estado !== 'Pagado')
-        .reduce((sum, f) => {
-          const balance = getBalancePendienteFactura(f);
-          return sum + balance;
-        }, 0);
+        .reduce((sum, f) => sum + getBalancePendienteFactura(f), 0);
       return { suplidor, facturasSupl, totalFacturasPagadas, totalFact, totalPag, pendiente };
     });
   }, [facturas, pagos, suplidores]);
@@ -207,11 +204,7 @@ export function Reportes() {
   const totalPagado = pagosPeriodo.reduce((sum, p) => sum + p.monto, 0);
   const totalPendiente = facturasPeriodo
     .filter(f => f.estado !== 'Pagado')
-    .reduce((sum, f) => {
-      const balance = getBalancePendienteFactura(f);
-      return sum + balance;
-    }, 0);
-
+    .reduce((sum, f) => sum + getBalancePendienteFactura(f), 0);
   const facturasVencidas = facturasPeriodo.filter(f =>
     f.estado !== 'Pagado' && new Date(f.fechaVencimiento) < new Date()
   ).length;
@@ -228,8 +221,8 @@ export function Reportes() {
     if (tipoReporte === 'por-suplidor') {
       return resumenPorSuplidor.map((r) => ({
         suplidor: r.suplidor.nombre,
-        totalFacturas: r.facturasSupl.length,
-        totalFacturasPagadas: r.totalFacturasPagadas,
+        totalFacturas: r.facturasSupl.length,        // conteo — sin $
+        totalFacturasPagadas: r.totalFacturasPagadas, // conteo — sin $
         totalFacturado: Number(r.totalFact.toFixed(2)),
         totalPagado: Number(r.totalPag.toFixed(2)),
         balancePendiente: Number(r.pendiente.toFixed(2))
@@ -252,13 +245,16 @@ export function Reportes() {
       .filter((f) => f.estado !== 'Pagado')
       .map((f) => {
         const fechaVencimiento = new Date(f.fechaVencimiento);
-        const diasVencida = Math.max(0, Math.floor((Date.now() - fechaVencimiento.getTime()) / (1000 * 60 * 60 * 24)));
+        const diasVencida = Math.max(
+          0,
+          Math.floor((Date.now() - fechaVencimiento.getTime()) / (1000 * 60 * 60 * 24))
+        );
         return {
           suplidor: f.suplidorNombre,
           factura: f.numeroFactura,
           fechaVencimiento: formatDate(fechaVencimiento),
           balancePendiente: Number(f.balancePendiente.toFixed(2)),
-          diasVencida,
+          diasVencida, // conteo — sin $
           estado: f.estado
         };
       })
@@ -270,18 +266,19 @@ export function Reportes() {
       'resumen-mensual': 'Resumen Mensual',
       'por-suplidor': 'Reporte por Suplidor',
       'flujo-caja': 'Flujo de Caja',
-      vencimientos: 'Analisis de Vencimientos'
+      vencimientos: 'Análisis de Vencimientos'
     };
     return map[tipoReporte];
   };
 
   const getNombreArchivoBase = () => `reporte_${tipoReporte}_${mesSeleccionado}`;
-
   const getResumenTexto = () =>
     `Total Facturado: ${formatCurrency(totalFacturado)} | Total Pagado: ${formatCurrency(totalPagado)} | Pendiente: ${formatCurrency(totalPendiente)} | Facturas Vencidas: ${facturasVencidas}`;
-
   const getHeaders = (filas: FilaExportacion[]) => (!filas.length ? [] : Object.keys(filas[0]));
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EXPORTAR EXCEL
+  // ─────────────────────────────────────────────────────────────────────────────
   const exportarExcel = (filas: FilaExportacion[]) => {
     const ws = XLSX.utils.json_to_sheet(filas);
     const wb = XLSX.utils.book_new();
@@ -289,6 +286,9 @@ export function Reportes() {
     XLSX.writeFile(wb, `${getNombreArchivoBase()}.xlsx`);
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EXPORTAR CSV
+  // ─────────────────────────────────────────────────────────────────────────────
   const exportarCSV = (filas: FilaExportacion[]) => {
     const ws = XLSX.utils.json_to_sheet(filas);
     const csv = XLSX.utils.sheet_to_csv(ws);
@@ -305,6 +305,9 @@ export function Reportes() {
 
   const loadImageAsDataUrl = async (imageUrl: string): Promise<string> => {
     const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error('No se pudo obtener la imagen del logo.');
+    }
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -314,50 +317,218 @@ export function Reportes() {
     });
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EXPORTAR PDF — soporte nativo CJK via fuente embebida
+  // ─────────────────────────────────────────────────────────────────────────────
   const exportarPDF = async (filas: FilaExportacion[]) => {
     const headers = getHeaders(filas);
     const doc = new jsPDF({ orientation: 'landscape' });
     const titulo = getNombreReporte();
-    const logoDataUrl = await loadImageAsDataUrl(logoPlazaMax);
+    let logoDataUrl: string | null = null;
+    try {
+      logoDataUrl = await loadImageAsDataUrl(LOGO_REPORTE_URL);
+    } catch (error) {
+      console.warn('[PDF] No se pudo cargar el logo. Se generará el PDF sin logo.', error);
+    }
 
-    doc.setFillColor(30, 64, 175);
-    doc.rect(0, 0, 297, 24, 'F');
-    doc.addImage(logoDataUrl, 'PNG', 12, 5, 12, 12);
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(16);
-    doc.text('Plaza Max', 28, 14);
-    doc.setFontSize(10);
-    doc.text('Reporte financiero profesional', 28, 19);
-    doc.setTextColor(17, 24, 39);
-    doc.setFontSize(14);
-    doc.text(titulo, 14, 34);
-    doc.setFontSize(10);
-    doc.text(`Periodo: ${getPeriodoTexto()} | Generado: ${formatDate(new Date())}`, 14, 40);
-    doc.text(getResumenTexto(), 14, 46);
+    // ── 1. Cargar fuente CJK si hay caracteres chinos ────────────────────────
+    const cjkRegex = /[\u3000-\u303F\u4E00-\u9FFF\uF900-\uFAFF\u3400-\u4DBF]/;
+    const tieneCJK = filas.some(row => Object.values(row).some(v => typeof v === 'string' && cjkRegex.test(v)));
+    let fuenteNombre = 'helvetica';
+    if (tieneCJK) {
+      try {
+        const res = await fetch('/fonts/NotoSansSC-Regular.ttf');
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          const CHUNK = 8192;
+          let bin = '';
+          for (let i = 0; i < bytes.length; i += CHUNK) {
+            bin += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as unknown as number[]));
+          }
+          doc.addFileToVFS('NotoSansSC-Regular.ttf', btoa(bin));
+          doc.addFont('NotoSansSC-Regular.ttf', 'NotoSansSC', 'normal');
+          fuenteNombre = 'NotoSansSC';
+        }
+      } catch {
+        console.warn('[PDF] No se pudo cargar la fuente CJK, usando helvetica.');
+      }
+    }
 
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+
+    // ── 2. Fuente helper ─────────────────────────────────────────────────────
+    const useFont = (style: 'normal' | 'bold' = 'normal') => {
+      doc.setFont(fuenteNombre, style);
+    };
+
+    const tableFontName = fuenteNombre;
+
+    // ── 3. Paleta de colores ─────────────────────────────────────────────────
+    const C = {
+      azulOscuro:  [11,  37,  110] as [number, number, number],
+      azulMedio:   [30,  64,  175] as [number, number, number],
+      azulClaro:   [59,  130, 246] as [number, number, number],
+      verde:       [5,   150, 105] as [number, number, number],
+      ambar:       [217, 119, 6]   as [number, number, number],
+      rojo:        [220, 38,  38]  as [number, number, number],
+      grisClaro:   [243, 244, 246] as [number, number, number],
+      grisBorde:   [209, 213, 219] as [number, number, number],
+      blanco:      [255, 255, 255] as [number, number, number],
+      textoOscuro: [17,  24,  39]  as [number, number, number],
+      textoMedio:  [75,  85,  99]  as [number, number, number],
+      celesteTexto:[186, 210, 255] as [number, number, number],
+    };
+
+    // ── 4. HEADER ────────────────────────────────────────────────────────────
+    doc.setFillColor(...C.azulOscuro);
+    doc.rect(0, 0, pageW * 0.55, 30, 'F');
+    doc.setFillColor(...C.azulMedio);
+    doc.rect(pageW * 0.55, 0, pageW * 0.45, 30, 'F');
+    doc.setFillColor(...C.azulClaro);
+    doc.rect(0, 28, pageW, 2, 'F');
+
+    if (logoDataUrl) {
+      try { doc.addImage(logoDataUrl, 'PNG', 10, 7, 14, 14); }
+      catch { console.warn('[PDF] Error al dibujar logo.'); }
+    }
+
+    useFont('bold');
+    doc.setFontSize(15);
+    doc.setTextColor(...C.blanco);
+    doc.text(nombreEmpresa, 28, 14);
+
+    useFont('normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...C.celesteTexto);
+    doc.text('Sistema de Gestión de Cuentas por Pagar', 28, 20);
+
+    doc.setDrawColor(...C.azulClaro);
+    doc.setLineWidth(0.5);
+    doc.line(pageW * 0.55, 3, pageW * 0.55, 27);
+
+    useFont('bold');
+    doc.setFontSize(13);
+    doc.setTextColor(...C.blanco);
+    doc.text(titulo.toUpperCase(), pageW - 10, 13, { align: 'right' });
+
+    useFont('normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...C.celesteTexto);
+    doc.text(
+      `Período: ${getPeriodoTexto()}   ·   Generado: ${formatDate(new Date())}`,
+      pageW - 10, 21, { align: 'right' }
+    );
+
+    // ── 5. BANDA DE KPIs ─────────────────────────────────────────────────────
+    doc.setFillColor(...C.grisClaro);
+    doc.rect(0, 30, pageW, 22, 'F');
+
+    const kpis = [
+      { label: 'Total Facturado',   value: formatCurrency(totalFacturado), color: C.azulMedio },
+      { label: 'Total Pagado',      value: formatCurrency(totalPagado),    color: C.verde     },
+      { label: 'Balance Pendiente', value: formatCurrency(totalPendiente), color: C.ambar     },
+      { label: 'Facturas Vencidas', value: String(facturasVencidas),       color: C.rojo      },
+    ];
+
+    const kpiColW = pageW / kpis.length;
+    kpis.forEach(({ label, value, color }, i) => {
+      const x = kpiColW * i;
+      const cx = x + kpiColW / 2;
+
+      // Separador vertical entre KPIs
+      if (i > 0) {
+        doc.setDrawColor(...C.grisBorde);
+        doc.setLineWidth(0.3);
+        doc.line(x, 32, x, 50);
+      }
+
+      // Indicador de color
+      doc.setFillColor(...color);
+      doc.rect(x + 8, 33.5, 3, 3, 'F');
+
+      // Etiqueta
+      useFont('normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...C.textoMedio);
+      doc.text(label, x + 15, 37);
+
+      // Valor
+      useFont('bold');
+      doc.setFontSize(11);
+      doc.setTextColor(...color);
+      doc.text(value, cx, 47, { align: 'center' });
+    });
+
+    // Línea inferior de la banda
+    doc.setDrawColor(...C.grisBorde);
+    doc.setLineWidth(0.4);
+    doc.line(0, 52, pageW, 52);
+
+    // ── 5. TABLA DE DATOS ────────────────────────────────────────────────────
     autoTable(doc, {
-      startY: 52,
-      head: [headers.map((h) => COLUMNA_TRADUCIDA[h] || h)],
+      startY: 56,
+      margin: { left: 10, right: 10 },
+      head: [headers.map((h) => (COLUMNA_TRADUCIDA[h] || h).toUpperCase())],
       body: filas.map((fila) =>
         headers.map((header) => {
           const value = fila[header];
-          if (typeof value === 'number') return formatCurrency(value);
+          if (typeof value === 'number') {
+            // FIX: campos de conteo NO llevan símbolo de moneda ($)
+            return CAMPOS_CONTEO.has(header) ? String(value) : formatCurrency(value);
+          }
           return value;
         })
       ),
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255] },
-      didDrawPage: (data) => {
-        const pageHeight = doc.internal.pageSize.getHeight();
-        const pageNumber = doc.getNumberOfPages();
-        doc.setFontSize(8);
-        doc.setTextColor(107, 114, 128);
+      styles: {
+        fontSize: 8.5,
+        cellPadding: { top: 4, bottom: 4, left: 6, right: 6 },
+        lineColor: C.grisBorde,
+        lineWidth: 0.2,
+        textColor: C.textoOscuro,
+        // ← fuente CJK aplicada a todas las celdas del cuerpo de la tabla
+        // Esto asegura que los nombres en chino/mandarín se rendericen
+        font: tableFontName,
+      },
+      headStyles: {
+        fillColor: C.azulOscuro,
+        textColor: C.blanco,
+        fontStyle: 'bold',
+        fontSize: 8,
+        halign: 'center',
+        cellPadding: { top: 5, bottom: 5, left: 6, right: 6 },
+        font: tableFontName,
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252] as [number, number, number],
+      },
+      // Alineación automática: numérico → derecha, texto → izquierda
+      columnStyles: headers.reduce((acc, h, i) => {
+        const esNumerico = filas.some((f) => typeof f[h] === 'number');
+        acc[i] = { halign: esNumerico ? 'right' : 'left' };
+        return acc;
+      }, {} as Record<number, { halign: 'left' | 'right' | 'center' }>),
+      didDrawPage: () => {
+        // ── FOOTER en cada página ──────────────────────────────────────────
+        doc.setFillColor(...C.azulOscuro);
+        doc.rect(0, pageH - 11, pageW, 11, 'F');
+        // Franja decorativa sobre el footer
+        doc.setFillColor(...C.azulClaro);
+        doc.rect(0, pageH - 12, pageW, 1, 'F');
+
+        useFont('normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...C.celesteTexto);
         doc.text(
-          `Documento generado por Plaza Max | Pagina ${pageNumber}`,
-          data.settings.margin.left,
-          pageHeight - 6
+          `${nombreEmpresa}  ·  ${getNombreReporte()}  ·  Período: ${getPeriodoTexto()}`,
+          10, pageH - 4
         );
-      }
+        doc.text(
+          `Página ${doc.getNumberOfPages()}`,
+          pageW - 10, pageH - 4, { align: 'right' }
+        );
+      },
     });
 
     doc.save(`${getNombreArchivoBase()}.pdf`);
@@ -367,19 +538,29 @@ export function Reportes() {
 
   const buildCorreoHtml = (filas: FilaExportacion[]) => {
     const headers = getHeaders(filas);
-    const headHtml = headers.map((h) => `<th style="text-align:left;padding:8px;background:#1e40af;color:#fff;">${COLUMNA_TRADUCIDA[h] || h}</th>`).join('');
-    const rowsHtml = filas.slice(0, 30).map((fila) => {
-      const celdas = headers.map((h) => {
-        const value = fila[h];
-        const printable = typeof value === 'number' ? formatCurrency(value) : String(value);
-        return `<td style="padding:8px;border-bottom:1px solid #e5e7eb;">${printable}</td>`;
-      }).join('');
-      return `<tr>${celdas}</tr>`;
-    }).join('');
+    const headHtml = headers
+      .map((h) => `<th style="text-align:left;padding:8px;background:#1e40af;color:#fff;">${COLUMNA_TRADUCIDA[h] || h}</th>`)
+      .join('');
+    const rowsHtml = filas
+      .slice(0, 30)
+      .map((fila) => {
+        const celdas = headers
+          .map((h) => {
+            const value = fila[h];
+            const printable =
+              typeof value === 'number'
+                ? CAMPOS_CONTEO.has(h) ? String(value) : formatCurrency(value)
+                : String(value);
+            return `<td style="padding:8px;border-bottom:1px solid #e5e7eb;">${printable}</td>`;
+          })
+          .join('');
+        return `<tr>${celdas}</tr>`;
+      })
+      .join('');
     return `
       <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.4;">
-        <h2 style="color:#1e40af;">Plaza Max - ${getNombreReporte()}</h2>
-        <p><strong>Periodo:</strong> ${getPeriodoTexto()}</p>
+        <h2 style="color:#1e40af;">${nombreEmpresa} — ${getNombreReporte()}</h2>
+        <p><strong>Período:</strong> ${getPeriodoTexto()}</p>
         <p><strong>Resumen:</strong> ${getResumenTexto()}</p>
         <table style="width:100%;border-collapse:collapse;font-size:12px;">
           <thead><tr>${headHtml}</tr></thead>
@@ -400,9 +581,10 @@ export function Reportes() {
     if (!filas.length) { alert('No hay datos para enviar.'); return; }
     setEnviandoCorreo(true);
     try {
-      const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID as string | undefined;
-      const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID as string | undefined;
-      const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY as string | undefined;
+      const env = (import.meta as ImportMeta & { env?: Record<string, string> }).env;
+      const serviceId = env?.VITE_EMAILJS_SERVICE_ID;
+      const templateId = env?.VITE_EMAILJS_TEMPLATE_ID;
+      const publicKey = env?.VITE_EMAILJS_PUBLIC_KEY;
       if (serviceId && templateId && publicKey) {
         await emailjs.send(serviceId, templateId, {
           to_email: correoDestino, subject: asuntoCorreo, message: mensajeCorreo,
@@ -453,14 +635,11 @@ export function Reportes() {
           <CardDescription>Seleccione el tipo de reporte que desea generar</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Fila 1: selectores */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <Label htmlFor="tipoReporte">Tipo de Reporte</Label>
               <Select value={tipoReporte} onValueChange={(v) => setTipoReporte(v as TipoReporte)}>
-                <SelectTrigger id="tipoReporte">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger id="tipoReporte"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="resumen-mensual">Resumen Mensual</SelectItem>
                   <SelectItem value="por-suplidor">Por Suplidor</SelectItem>
@@ -483,9 +662,7 @@ export function Reportes() {
             <div>
               <Label htmlFor="formato">Formato de Exportación</Label>
               <Select value={formatoExportacion} onValueChange={(v) => setFormatoExportacion(v as FormatoExportacion)}>
-                <SelectTrigger id="formato">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger id="formato"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pdf">PDF</SelectItem>
                   <SelectItem value="excel">Excel (.xlsx)</SelectItem>
@@ -495,7 +672,6 @@ export function Reportes() {
             </div>
           </div>
 
-          {/* Fila 2: botones de acción — siempre dentro del card */}
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button onClick={handleExportarReporte} disabled={exportando} className="min-w-[160px]">
               {formatoExportacion === 'excel' ? (
@@ -543,7 +719,7 @@ export function Reportes() {
                       type="email"
                       value={correoDestino}
                       onChange={(e) => setCorreoDestino(e.target.value)}
-                      placeholder="gerencia@plazamax.com"
+                      placeholder="gerencia@empresa.com"
                     />
                   </div>
                   <div className="space-y-2">
@@ -628,10 +804,7 @@ export function Reportes() {
               <AreaChart data={facturasVsPagesPorMes()}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" style={{ fontSize: '12px' }} />
-                <YAxis
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-                  style={{ fontSize: '12px' }}
-                />
+                <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} style={{ fontSize: '12px' }} />
                 <Tooltip formatter={(value: number) => formatCurrency(value)} />
                 <Legend />
                 <Area type="monotone" dataKey="facturado" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} name="Facturado" />
@@ -651,10 +824,7 @@ export function Reportes() {
               <LineChart data={pagosPorMes()}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="mes" style={{ fontSize: '12px' }} />
-                <YAxis
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-                  style={{ fontSize: '12px' }}
-                />
+                <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} style={{ fontSize: '12px' }} />
                 <Tooltip formatter={(value: number) => formatCurrency(value)} />
                 <Legend />
                 <Line type="monotone" dataKey="pagado" stroke="#10b981" strokeWidth={3} name="Pagado" dot={{ r: 5 }} />
@@ -664,7 +834,7 @@ export function Reportes() {
         </Card>
       </div>
 
-      {/* ── FIX: layout="vertical" para barras horizontales con categorías en Y ── */}
+      {/* ── Balance pendiente por suplidor ───────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>Balance Pendiente por Suplidor</CardTitle>
@@ -677,25 +847,14 @@ export function Reportes() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(300, deudaPorSuplidorData().length * 48)}>
-              {/* layout vertical para barras horizontales con categorias en Y */}
               <BarChart
                 data={deudaPorSuplidorData()}
                 layout="vertical"
                 margin={{ top: 5, right: 30, left: 160, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis
-                  type="number"
-                  tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-                  style={{ fontSize: '11px' }}
-                />
-                <YAxis
-                  dataKey="suplidor"
-                  type="category"
-                  width={155}
-                  style={{ fontSize: '11px' }}
-                  tick={{ fill: '#374151' }}
-                />
+                <XAxis type="number" tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} style={{ fontSize: '11px' }} />
+                <YAxis dataKey="suplidor" type="category" width={155} style={{ fontSize: '11px' }} tick={{ fill: '#374151' }} />
                 <Tooltip formatter={(value: number) => formatCurrency(value)} />
                 <Legend />
                 <Bar dataKey="deuda" fill="#ef4444" name="Deuda Pendiente" radius={[0, 4, 4, 0]} />
@@ -717,8 +876,8 @@ export function Reportes() {
               <thead className="bg-gray-50">
                 <tr className="border-b">
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-600">Suplidor</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Total Facturas</th>                
-                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Total Facturas Pagadas</th>
+                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Total Facturas</th>
+                  <th className="text-center py-3 px-4 text-sm font-medium text-gray-600">Facturas Pagadas</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Total Facturado</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Total Pagado</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-gray-600">Balance Pendiente</th>
@@ -747,10 +906,7 @@ export function Reportes() {
                     {formatCurrency(
                       facturas
                         .filter((f) => f.estado !== 'Pagado')
-                        .reduce((sum, f) => {
-                          const balance = getBalancePendienteFactura(f);
-                          return sum + balance;
-                        }, 0)
+                        .reduce((sum, f) => sum + getBalancePendienteFactura(f), 0)
                     )}
                   </td>
                 </tr>

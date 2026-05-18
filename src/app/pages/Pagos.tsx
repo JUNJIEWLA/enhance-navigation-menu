@@ -9,6 +9,7 @@ import { Button } from '../components/ui/button';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+
 export function Pagos() {
   const { pagos } = useData();
   const [busqueda, setBusqueda] = useState('');
@@ -44,11 +45,15 @@ export function Pagos() {
     }).format(new Date(date));
   };
 
-  const formatDateShort = (date: Date) => {
+  const formatDateTime = (date: Date) => {
     return new Intl.DateTimeFormat('es-DO', {
       year: 'numeric',
       month: '2-digit',
-      day: '2-digit'
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
     }).format(new Date(date));
   };
 
@@ -61,9 +66,46 @@ export function Pagos() {
     return colors[metodo] || '';
   };
 
+  // ─── Helper: carga NotoSansSC en jsPDF para soporte CJK ─────────────────────
+  const cargarFuenteCJK = async (doc: jsPDF): Promise<string | null> => {
+    try {
+      const res = await fetch('/fonts/NotoSansSC-Regular.ttf');
+      if (!res.ok) return null;
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const CHUNK = 8192;
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as unknown as number[]));
+      }
+      const b64 = btoa(bin);
+      doc.addFileToVFS('NotoSansSC-Regular.ttf', b64);
+      doc.addFont('NotoSansSC-Regular.ttf', 'NotoSansSC', 'normal');
+      return 'NotoSansSC';
+    } catch {
+      return null;
+    }
+  };
+
   // ─── EXPORTAR PDF ────────────────────────────────────────────────────────────
-  const exportarPDF = () => {
+  const exportarPDF = async () => {
+    const cjkRegex = /[\u3000-\u303F\u4E00-\u9FFF\uF900-\uFAFF\u3400-\u4DBF]/;
+    const filasObjetos = pagosFiltrados.map(p => ({
+      fecha: formatDateTime(p.fecha),
+      factura: p.numeroFactura,
+      suplidor: p.suplidorNombre,
+      metodo: p.metodoPago,
+      referencia: p.referencia || '-',
+      monto: formatCurrency(p.monto),
+      notas: p.notas || '-'
+    }));
+
+    const hasCJK = filasObjetos.some(row => Object.values(row).some(v => typeof v === 'string' && cjkRegex.test(v)));
+
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    // Cargar fuente CJK si hay caracteres chinos
+    const fuenteNombre = hasCJK ? (await cargarFuenteCJK(doc)) ?? 'helvetica' : 'helvetica';
 
     const pageWidth = doc.internal.pageSize.getWidth();
     const fechaGenerado = new Intl.DateTimeFormat('es-DO', {
@@ -77,17 +119,17 @@ export function Pagos() {
 
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(fuenteNombre, 'bold');
     doc.text('Reporte de Pagos / Egresos', 14, 13);
 
     doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(fuenteNombre, 'normal');
     doc.text(`Generado: ${fechaGenerado}`, pageWidth - 14, 13, { align: 'right' });
 
     // ── Filtro activo ───────────────────────────────────────────────────────────
     doc.setTextColor(80, 80, 80);
     doc.setFontSize(9);
-    doc.setFont('helvetica', 'italic');
+    doc.setFont(fuenteNombre, 'normal');
     const filtroTexto = filtroMetodo !== 'Todos'
       ? `Filtro aplicado: Método de pago = ${filtroMetodo}`
       : 'Sin filtros aplicados';
@@ -108,11 +150,11 @@ export function Pagos() {
       doc.roundedRect(x, 31, cardW, 16, 2, 2, 'F');
       doc.setTextColor(100, 116, 139);
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont(fuenteNombre, 'normal');
       doc.text(item.label, x + cardW / 2, 37, { align: 'center' });
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(fuenteNombre, 'bold');
       doc.text(item.value, x + cardW / 2, 44, { align: 'center' });
     });
 
@@ -120,7 +162,7 @@ export function Pagos() {
     const columnas = ['Fecha', 'No. Factura', 'Suplidor', 'Método', 'Referencia', 'Monto (DOP)', 'Notas'];
 
     const filas = pagosFiltrados.map(p => [
-      formatDateShort(p.fecha),
+      formatDateTime(p.fecha),
       p.numeroFactura,
       p.suplidorNombre,
       p.metodoPago,
@@ -138,6 +180,7 @@ export function Pagos() {
       startY: 52,
       margin: { left: 14, right: 14 },
       styles: {
+        font: fuenteNombre,
         fontSize: 8,
         cellPadding: { top: 3, bottom: 3, left: 3, right: 3 },
         lineColor: [226, 232, 240],
@@ -145,6 +188,7 @@ export function Pagos() {
         textColor: [30, 41, 59]
       },
       headStyles: {
+        font: fuenteNombre,
         fillColor: [30, 64, 175],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
@@ -188,7 +232,7 @@ export function Pagos() {
         const currentPage = (doc as any).internal.getCurrentPageInfo().pageNumber;
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
-        doc.setFont('helvetica', 'normal');
+        doc.setFont(fuenteNombre, 'normal');
         doc.text(
           `Página ${currentPage} de ${pageCount}`,
           pageWidth / 2,
@@ -282,7 +326,7 @@ export function Pagos() {
               <tbody>
                 {pagosFiltrados.map((pago) => (
                   <tr key={pago.id} className="border-b hover:bg-gray-50">
-                    <td className="py-3 px-4 text-sm">{formatDate(pago.fecha)}</td>
+                    <td className="py-3 px-4 text-sm whitespace-nowrap">{formatDateTime(pago.fecha)}</td>
                     <td className="py-3 px-4 text-sm font-medium">{pago.numeroFactura}</td>
                     <td className="py-3 px-4 text-sm">{pago.suplidorNombre}</td>
                     <td className="py-3 px-4 text-center">

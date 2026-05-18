@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Plus, Search, MoreVertical, DollarSign, Eye, Trash2, Edit, FileText, History } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { PagoDialog } from '../components/PagoDialog';
+import { useAuth } from '../context/AuthContext';
 
 // Helper para mensajes de error inline
 const FieldError = ({ msg }: { msg?: string }) =>
@@ -17,6 +18,7 @@ const FieldError = ({ msg }: { msg?: string }) =>
 
 export function CuentasPorPagar() {
   const { facturas, suplidores, pagos, agregarFactura, editarFactura, eliminarFactura } = useData();
+  const { perfil } = useAuth();
 
   const parseInputDate = (value: string) => {
     const [year, month, day] = value.split('-').map(Number);
@@ -150,6 +152,19 @@ export function CuentasPorPagar() {
   const formatDate = (date: Date) =>
     new Intl.DateTimeFormat('es-DO', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(date));
 
+  const formatDateTime = (date: Date) =>
+    new Intl.DateTimeFormat('es-DO', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date(date));
+
+  const nombreEmpresa = perfil?.nombreEmpresa?.trim() || 'Empresa del usuario';
+
   const isVencida = (fecha: Date) => new Date(fecha) < hoy;
   const totalPagadoDeFactura = (facturaId: string) =>
     pagos
@@ -279,7 +294,7 @@ export function CuentasPorPagar() {
         .footer { margin-top: 40px; text-align: center; font-size: 11px; color: #aaa; border-top: 1px solid #eee; padding-top: 15px; }
       </style></head><body>
         <div class="header">
-          <div><div class="titulo">FACTURA POR PAGAR</div><div class="subtitulo">Sistema de Gestión - Plaza Max</div></div>
+          <div><div class="titulo">FACTURA POR PAGAR</div><div class="subtitulo">Sistema de Gestión - ${nombreEmpresa}</div></div>
           <div style="text-align:right">
             <div style="font-size:20px; font-weight:bold">${factura.numeroFactura}</div>
             ${numeroExterno ? `<div style="font-size:13px;color:#666">Ref. Proveedor: ${numeroExterno}</div>` : ''}
@@ -304,7 +319,7 @@ export function CuentasPorPagar() {
         <div class="seccion"><h3>Historial de Pagos</h3>
           <table class="tabla"><thead><tr><th>Fecha</th><th>Método</th><th>Referencia</th><th>Notas</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody>${pagosFactura.map(p => `<tr>
-            <td>${formatDate(p.fecha)}</td><td>${p.metodoPago}</td>
+            <td>${formatDateTime(p.fecha)}</td><td>${p.metodoPago}</td>
             <td>${p.referencia || '—'}</td><td>${p.notas || '-'}</td>
             <td style="text-align:right">${formatCurrency(p.monto)}</td>
           </tr>`).join('')}</tbody></table>
@@ -681,7 +696,7 @@ export function CuentasPorPagar() {
                 <tbody>
                   {pagosDeFactura.map((pago) => (
                     <tr key={pago.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm">{formatDate(pago.fecha)}</td>
+                      <td className="py-3 px-4 text-sm whitespace-nowrap">{formatDateTime(pago.fecha)}</td>
                       <td className="py-3 px-4 text-sm"><Badge variant="outline">{pago.metodoPago}</Badge></td>
                       <td className="py-3 px-4 text-sm font-mono text-xs">{pago.referencia || '—'}</td>
                       <td className="py-3 px-4 text-sm text-gray-500">{pago.notas || '—'}</td>
