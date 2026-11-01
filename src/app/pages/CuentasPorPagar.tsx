@@ -747,7 +747,7 @@ export function CuentasPorPagar() {
               <tfoot className="border-t bg-gray-50 text-sm">
                 <tr>
                   <td colSpan={5} className="px-3 py-2.5 font-medium text-gray-600">
-                    Total ({facturasFiltradas.length} factura{facturasFiltradas.length !== 1 ? 's' : ''})
+                    {`Total (${facturasFiltradas.length} factura${facturasFiltradas.length !== 1 ? 's' : ''})`}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-gray-900">{formatCurrency(totales.monto)}</td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-red-600">{formatCurrency(totales.balance)}</td>

@@ -534,7 +534,7 @@ export function Suplidores() {
                     <div className="flex flex-wrap justify-end gap-1">
                       {st.vencidas > 0 && (
                         <Badge className="border-red-200 bg-red-50 text-red-700">
-                          <AlertTriangle className="size-3" /> {st.vencidas} vencida{st.vencidas > 1 ? 's' : ''}
+                          <AlertTriangle className="size-3" /> {`${st.vencidas} vencida${st.vencidas > 1 ? 's' : ''}`}
                         </Badge>
                       )}
                       {st.deuda === 0 && st.total > 0 && (
@@ -627,7 +627,7 @@ export function Suplidores() {
                         <span className="font-medium text-gray-900">{st.total}</span>
                         {st.abiertas > 0 && <span className="ml-1 text-xs text-gray-500">({st.abiertas} abiertas)</span>}
                         {st.vencidas > 0 && (
-                          <Badge className="ml-2 border-red-200 bg-red-50 text-red-700">{st.vencidas} vencida{st.vencidas > 1 ? 's' : ''}</Badge>
+                          <Badge className="ml-2 border-red-200 bg-red-50 text-red-700">{`${st.vencidas} vencida${st.vencidas > 1 ? 's' : ''}`}</Badge>
                         )}
                       </td>
                       <td className={cn('px-4 py-3 text-right font-semibold', st.deuda > 0 ? 'text-red-600' : 'text-emerald-600')}>

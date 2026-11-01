@@ -12,12 +12,16 @@ import {
   Search,
   PanelLeftClose,
   PanelLeftOpen,
+  Languages,
+  ChevronRight,
   type LucideIcon
 } from 'lucide-react';
 import { cn } from './ui/utils';
 import logoSynestia from '../assets/image.png';
 import { useAuth } from '../context/AuthContext';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { useIdioma } from '../i18n/LanguageContext';
+import { ZH } from '../i18n/zh';
 
 interface LayoutProps {
   children: ReactNode;
@@ -136,10 +140,17 @@ export function Layout({ children }: LayoutProps) {
       .filter((g) => !g.superAdminOnly || perfil?.rol === 'super_admin')
       .map((g) => ({
         ...g,
-        items: q ? g.items.filter((i) => normalize(i.label).includes(q)) : g.items
+        items: q ? g.items.filter((i) => normalize(i.label).includes(q) || (ZH[i.label] ?? '').includes(query.trim())) : g.items
       }))
       .filter((g) => g.items.length > 0);
   }, [query, perfil?.rol]);
+
+  const { idioma, alternarIdioma } = useIdioma();
+
+  // Sección y página actual para la barra superior
+  const actual = menuGroups
+    .flatMap((g) => g.items.map((i) => ({ grupo: g.title, item: i })))
+    .find(({ item }) => (item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)));
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
@@ -263,6 +274,29 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Contenido principal */}
       <main className="flex-1 h-full overflow-y-auto">
+        {/* Barra superior */}
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-gray-200 bg-white/85 px-8 backdrop-blur print:hidden">
+          <nav className="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Ruta">
+            <span className="text-gray-500">{actual?.grupo ?? 'General'}</span>
+            <ChevronRight className="size-4 shrink-0 text-gray-300" />
+            <span className="truncate font-semibold text-gray-900">{actual?.item.label ?? 'Dashboard'}</span>
+          </nav>
+
+          <button
+            type="button"
+            onClick={alternarIdioma}
+            title={idioma === 'zh' ? 'Cambiar a español' : '切换到中文'}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+            translate="no"
+          >
+            <Languages className="size-4 text-gray-500" />
+            <span className="flex overflow-hidden rounded-md bg-gray-100 p-0.5 text-xs">
+              <span className={cn('rounded px-2 py-0.5 transition-colors', idioma === 'es' ? 'bg-gray-900 text-white' : 'text-gray-500')}>ES</span>
+              <span className={cn('rounded px-2 py-0.5 transition-colors', idioma === 'zh' ? 'bg-gray-900 text-white' : 'text-gray-500')}>中文</span>
+            </span>
+          </button>
+        </header>
+
         <div className="p-8">{children}</div>
       </main>
     </div>
