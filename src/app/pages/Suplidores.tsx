@@ -6,7 +6,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Plus, Search, MoreVertical, Edit, Trash2, Phone, Mail, MapPin } from 'lucide-react';
+import { Plus, Search, MoreVertical, Edit, Trash2, Phone, Mail, MapPin, FileText, ChevronRight } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { useAuth } from '../context/AuthContext';
 
@@ -21,6 +22,7 @@ export function Suplidores() {
   const [validandoEliminacion, setValidandoEliminacion] = useState(false);
   const [facturasAsociadas, setFacturasAsociadas] = useState(0);
   const [suplidorAEliminar, setSuplidorAEliminar] = useState<Suplidor | null>(null);
+  const [suplidorFacturas, setSuplidorFacturas] = useState<Suplidor | null>(null);
   const [guardando, setGuardando] = useState(false);
   // ── [CAMBIO 3] Error de validación para el campo Nombre ──────────────────
   const [errorNombre, setErrorNombre] = useState('');
@@ -71,6 +73,20 @@ export function Suplidores() {
       currency: 'DOP'
     }).format(value);
   };
+
+  const formatDate = (value: Date) =>
+    value.toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  const facturasDeSuplidor = (suplidorId: string) =>
+    facturas
+      .filter(f => f.suplidorId === suplidorId)
+      .sort((a, b) => b.fechaEmision.getTime() - a.fechaEmision.getTime());
+
+  const badgeEstado = (estado: string) =>
+    estado === 'Pendiente' ? 'bg-red-100 text-red-800 border-red-300' :
+    estado === 'Parcial' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+    estado === 'Anulada' ? 'bg-gray-100 text-gray-600 border-gray-300' :
+    'bg-green-100 text-green-800 border-green-300';
 
   const cerrarMenuAcciones = () => setMenuAccionesAbierto(null);
 
@@ -225,6 +241,10 @@ export function Suplidores() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => ejecutarDespuesDeCerrarMenu(() => setSuplidorFacturas(suplidor))}>
+                        <FileText className="size-4 mr-2" />
+                        Ver facturas
+                      </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => abrirDialogEditar(suplidor)}>
                         <Edit className="size-4 mr-2" />
                         Editar
@@ -262,6 +282,17 @@ export function Suplidores() {
                       {formatCurrency(deuda)}
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setSuplidorFacturas(suplidor)}
+                    className="mt-3 flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    <span className="flex items-center gap-2">
+                      <FileText className="size-4" />
+                      Ver facturas ({facturas.filter(f => f.suplidorId === suplidor.id).length})
+                    </span>
+                    <ChevronRight className="size-4 text-gray-400" />
+                  </button>
                 </div>
               </CardContent>
             </Card>
@@ -376,6 +407,88 @@ export function Suplidores() {
             </Button>
             <Button onClick={handleGuardar} disabled={guardando}>
               {guardando ? 'Guardando...' : editando ? 'Actualizar' : 'Guardar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: facturas del suplidor */}
+      <Dialog open={suplidorFacturas !== null} onOpenChange={(open) => { if (!open) setSuplidorFacturas(null); }}>
+        <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Facturas de {suplidorFacturas?.nombre}</DialogTitle>
+            <DialogDescription>
+              {suplidorFacturas?.codigo ? `${suplidorFacturas.codigo} · ` : ''}RNC: {suplidorFacturas?.ruc}
+            </DialogDescription>
+          </DialogHeader>
+
+          {suplidorFacturas && (() => {
+            const lista = facturasDeSuplidor(suplidorFacturas.id);
+            const activas = lista.filter(f => f.estado !== 'Anulada');
+            const totalFacturado = activas.reduce((sum, f) => sum + f.montoTotal, 0);
+            const totalPendiente = activas.filter(f => f.estado !== 'Pagado').reduce((sum, f) => sum + f.balancePendiente, 0);
+
+            if (lista.length === 0) {
+              return <p className="py-10 text-center text-sm text-gray-500">Este suplidor no tiene facturas registradas.</p>;
+            }
+
+            return (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-gray-500">Facturas</p>
+                    <p className="text-lg font-semibold">{lista.length}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-gray-500">Total facturado</p>
+                    <p className="text-lg font-semibold">{formatCurrency(totalFacturado)}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-gray-500">Balance pendiente</p>
+                    <p className={`text-lg font-semibold ${totalPendiente > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {formatCurrency(totalPendiente)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-auto rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="px-3 py-2">No. Factura</th>
+                        <th className="px-3 py-2">Emisión</th>
+                        <th className="px-3 py-2">Vencimiento</th>
+                        <th className="px-3 py-2 text-right">Monto</th>
+                        <th className="px-3 py-2 text-right">Balance</th>
+                        <th className="px-3 py-2">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lista.map(f => (
+                        <tr key={f.id} className="border-t">
+                          <td className="px-3 py-2">
+                            <p className="font-medium">{f.numeroFactura}</p>
+                            {f.numeroExterno && <p className="text-xs text-gray-500">Ext: {f.numeroExterno}</p>}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">{formatDate(f.fechaEmision)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{formatDate(f.fechaVencimiento)}</td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">{formatCurrency(f.montoTotal)}</td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">{formatCurrency(f.balancePendiente)}</td>
+                          <td className="px-3 py-2">
+                            <Badge className={badgeEstado(f.estado)}>{f.estado}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuplidorFacturas(null)}>
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>
