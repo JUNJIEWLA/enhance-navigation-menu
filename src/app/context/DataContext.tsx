@@ -223,10 +223,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
           facturaId: p.factura_id,
           numeroFactura: p.facturas?.numero || '',
           suplidorNombre: p.facturas?.suplidores?.nombre || '',
-          fecha: parseDateValue(p.fecha),
+          // Usar created_at (timestamptz) que siempre tiene la hora exacta.
+          // El campo `fecha` es solo date (YYYY-MM-DD) y pierde la hora tras F5.
+          fecha: new Date(p.created_at ?? p.fecha),
           monto: p.monto,
           metodoPago: p.metodo_pago as 'Cheque' | 'Transferencia' | 'Efectivo',
-          referencia: p.nota || '',
+          referencia: p.referencia || p.nota || '',
           notas: p.nota || ''
         })));
       }
@@ -475,8 +477,10 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         empresa_id: perfil.empresaId,
         factura_id: pago.facturaId,
         monto: pago.monto,
-        fecha: pago.fecha,
+        // Enviar ISO string con hora completa para que Supabase lo almacene correctamente
+        fecha: pago.fecha instanceof Date ? pago.fecha.toISOString() : pago.fecha,
         metodo_pago: pago.metodoPago,
+        referencia: pago.referencia || null,
         nota: pago.notas
       }])
       .select()
