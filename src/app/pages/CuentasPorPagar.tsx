@@ -9,10 +9,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import {
   Plus, Search, MoreVertical, DollarSign, Eye, Trash2, Edit, FileText, History, X, Users, ArrowUpDown,
-  ArrowUp, ArrowDown, Wallet, AlertTriangle, CalendarClock, CheckCircle2, CreditCard, ChevronLeft, ChevronRight, Download
+  ArrowUp, ArrowDown, Wallet, AlertTriangle, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Download
 } from 'lucide-react';
 import {
-  Avatar, Kpi, Segmented, VencimientoChip, ESTADO_STYLES, estaAbierta, estaVencida, diasHasta,
+  Kpi, Segmented, VencimientoChip, ESTADO_STYLES, estaAbierta, estaVencida, diasHasta,
   formatDateShort, normalizar
 } from '../components/finance-ui';
 import { cn } from '../components/ui/utils';
@@ -637,7 +637,7 @@ export function CuentasPorPagar() {
                   ['monto', 'Monto', 'text-right'],
                   ['balance', 'Balance', 'text-right']
                 ] as const).map(([key, label, align]) => (
-                  <th key={key} className={cn('px-4 py-3 font-medium', align)}>
+                  <th key={key} className={cn("whitespace-nowrap px-3 py-2.5 font-medium", align)}>
                     <button
                       type="button"
                       onClick={() => ordenarPor(key)}
@@ -650,8 +650,8 @@ export function CuentasPorPagar() {
                     </button>
                   </th>
                 ))}
-                <th className="px-4 py-3 text-center font-medium">Estado</th>
-                <th className="px-4 py-3 text-right font-medium">Acciones</th>
+                <th className="px-3 py-2.5 text-center font-medium">Estado</th>
+                <th className="w-10 px-2 py-2.5" />
               </tr>
             </thead>
             <tbody>
@@ -669,48 +669,40 @@ export function CuentasPorPagar() {
                       vencida && 'bg-red-50/40 hover:bg-red-50'
                     )}
                   >
-                    <td className={cn('border-l-2 px-4 py-3', vencida ? 'border-l-red-500' : 'border-l-transparent')}>
-                      <span className="whitespace-nowrap font-mono text-base font-semibold text-blue-700">{factura.numeroFactura}</span>
+                    <td className={cn('border-l-2 px-3 py-2.5', vencida ? 'border-l-red-500' : 'border-l-transparent')}>
+                      <span className="whitespace-nowrap font-mono font-semibold text-blue-700">{factura.numeroFactura}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">
                       {factura.numeroExterno ? (
-                        <span className="inline-block whitespace-nowrap rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 font-mono text-base font-semibold text-gray-900">
+                        <span className="whitespace-nowrap font-mono font-semibold text-gray-900">
                           {factura.numeroExterno}
                         </span>
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <Avatar nombre={factura.suplidorNombre} size="sm" />
-                        <span className="max-w-[200px] truncate font-medium text-gray-800">{factura.suplidorNombre}</span>
-                      </div>
+                    <td className="px-3 py-2.5">
+                      <span className="block max-w-[180px] truncate font-medium text-gray-800" title={factura.suplidorNombre}>{factura.suplidorNombre}</span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-600">{formatDateShort(factura.fechaEmision)}</td>
-                    <td className="whitespace-nowrap px-4 py-3">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-gray-600">{formatDateShort(factura.fechaEmision)}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5">
                       <p className={cn(vencida ? 'font-semibold text-red-600' : 'text-gray-700')}>{formatDateShort(factura.fechaVencimiento)}</p>
-                      <VencimientoChip factura={factura} />
+                      <VencimientoChip factura={factura} compact />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right">
                       <p className="text-gray-800">{formatCurrency(factura.montoTotal)}</p>
                       <div className="ml-auto mt-1 h-1 w-20 overflow-hidden rounded-full bg-gray-100" title={`${pagadoPct}% pagado`}>
                         <div className={cn('h-full rounded-full', pagadoPct >= 100 ? 'bg-emerald-500' : 'bg-blue-500')} style={{ width: `${pagadoPct}%` }} />
                       </div>
                     </td>
-                    <td className={cn('whitespace-nowrap px-4 py-3 text-right font-semibold', factura.balancePendiente > 0 ? 'text-gray-900' : 'text-gray-400')}>
+                    <td className={cn('whitespace-nowrap px-3 py-2.5 text-right font-semibold', factura.balancePendiente > 0 ? 'text-gray-900' : 'text-gray-400')}>
                       {formatCurrency(factura.balancePendiente)}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       <Badge className={ESTADO_STYLES[factura.estado]}>{factura.estado}</Badge>
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
-                        {estaAbierta(factura) && (
-                          <Button size="sm" className="h-8" onClick={() => setFacturaIdPago(factura.id)}>
-                            <CreditCard className="size-3.5 mr-1.5" /> Pagar
-                          </Button>
-                        )}
                         <DropdownMenu
                           open={menuAccionesAbierto === factura.id}
                           onOpenChange={(open) => setMenuAccionesAbierto(open ? factura.id : null)}
@@ -754,11 +746,11 @@ export function CuentasPorPagar() {
             {facturasFiltradas.length > 0 && (
               <tfoot className="border-t bg-gray-50 text-sm">
                 <tr>
-                  <td colSpan={5} className="px-4 py-3 font-medium text-gray-600">
+                  <td colSpan={5} className="px-3 py-2.5 font-medium text-gray-600">
                     Total ({facturasFiltradas.length} factura{facturasFiltradas.length !== 1 ? 's' : ''})
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(totales.monto)}</td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-red-600">{formatCurrency(totales.balance)}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-gray-900">{formatCurrency(totales.monto)}</td>
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-red-600">{formatCurrency(totales.balance)}</td>
                   <td colSpan={2} />
                 </tr>
               </tfoot>

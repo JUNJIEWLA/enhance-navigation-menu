@@ -143,20 +143,20 @@ export function Segmented<T extends string>({ value, onChange, options }: {
 
 // ─── Chip de vencimiento ──────────────────────────────────────────────────────
 
-export function VencimientoChip({ factura }: { factura: Factura }) {
+export function VencimientoChip({ factura, compact = false }: { factura: Factura; compact?: boolean }) {
   if (!estaAbierta(factura)) return null;
   const dias = diasHasta(factura.fechaVencimiento);
   if (dias < 0) {
     return (
       <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
-        Vencida hace {Math.abs(dias)} día{Math.abs(dias) !== 1 ? 's' : ''}
+        {compact ? `Vencida ${Math.abs(dias)}d` : `Vencida hace ${Math.abs(dias)} día${Math.abs(dias) !== 1 ? 's' : ''}`}
       </span>
     );
   }
   if (dias <= 7) {
     return (
       <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-        {dias === 0 ? 'Vence hoy' : `Vence en ${dias} día${dias !== 1 ? 's' : ''}`}
+        {dias === 0 ? 'Vence hoy' : compact ? `En ${dias}d` : `Vence en ${dias} día${dias !== 1 ? 's' : ''}`}
       </span>
     );
   }
