@@ -1,35 +1,23 @@
 import { useState, useEffect } from 'react';
-import { useData } from '../context/DataContext';
+import { Factura, useData } from '../context/DataContext';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select';
 import { Textarea } from './ui/textarea';
+import { Alert, AlertDescription, AlertTitle } from './ui/alert';
+import { cn } from './ui/utils';
+import { Banknote, Landmark, Loader2, ReceiptText } from 'lucide-react';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type MetodoPago = 'Cheque' | 'Transferencia' | 'Efectivo';
-
-interface PagoDialogProps {
-  /** ID de la factura a pagar. Pasar null / undefined cierra el diálogo. */
-  facturaId: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
 
 const ESTADO_INICIAL = {
   monto: '',
@@ -38,185 +26,281 @@ const ESTADO_INICIAL = {
   notas: '',
 };
 
-// ─── Componente ───────────────────────────────────────────────────────────────
+type Errores = Partial<Record<keyof typeof ESTADO_INICIAL, string>>;
 
-export function PagoDialog({ facturaId, open, onOpenChange }: PagoDialogProps) {
-  const { facturas, registrarPago } = useData();
+const METODOS: { value: MetodoPago; label: string; icon: typeof Banknote }[] = [
+  { value: 'Transferencia', label: 'Transferencia', icon: Landmark },
+  { value: 'Cheque', label: 'Cheque', icon: ReceiptText },
+  { value: 'Efectivo', label: 'Efectivo', icon: Banknote },
+];
 
-  const [form, setForm] = useState(ESTADO_INICIAL);
-  const [errores, setErrores] = useState<Partial<typeof ESTADO_INICIAL>>({});
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value);
+}
 
-  const factura = facturas.find(f => f.id === facturaId);
+// ─── Formulario reutilizable (se usa en diálogo o dentro de un panel) ─────────
 
-  // Pre-llenar el monto con el balance pendiente cuando se abre
+interface PagoFormProps {
+  factura: Factura;
+  onSuccess: (monto: number) => void;
+  onCancel: () => void;
+  /** Texto del botón cancelar (por defecto "Cancelar") */
+  cancelLabel?: string;
+}
+
+export function PagoForm({ factura, onSuccess, onCancel, cancelLabel = 'Cancelar' }: PagoFormProps) {
+  const { registrarPago } = useData();
+
+  const [form, setForm] = useState({ ...ESTADO_INICIAL, monto: factura.balancePendiente.toFixed(2) });
+  const [errores, setErrores] = useState<Errores>({});
+  const [errorGeneral, setErrorGeneral] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  // Reiniciar si cambia la factura
   useEffect(() => {
-    if (open && factura) {
-      setForm({ ...ESTADO_INICIAL, monto: factura.balancePendiente.toString() });
-      setErrores({});
-    }
-  }, [open, facturaId]);
+    setForm({ ...ESTADO_INICIAL, monto: factura.balancePendiente.toFixed(2) });
+    setErrores({});
+    setErrorGeneral('');
+  }, [factura.id]);
 
   const requiereReferencia = form.metodoPago !== 'Efectivo';
+  const montoNum = parseFloat(form.monto);
+  const restante = isNaN(montoNum) ? factura.balancePendiente : Math.max(factura.balancePendiente - montoNum, 0);
 
-  // ── Validación ──────────────────────────────────────────────────────────────
   const validar = (): boolean => {
-    const nuevosErrores: Partial<typeof ESTADO_INICIAL> = {};
+    const nuevos: Errores = {};
 
-    if (!form.monto || isNaN(parseFloat(form.monto)) || parseFloat(form.monto) <= 0) {
-      nuevosErrores.monto = 'Ingrese un monto válido mayor a cero.';
-    } else if (factura && parseFloat(form.monto) > factura.balancePendiente) {
-      nuevosErrores.monto = `El monto no puede superar el balance pendiente (${formatCurrency(factura.balancePendiente)}).`;
+    if (!form.monto || isNaN(montoNum) || montoNum <= 0) {
+      nuevos.monto = 'Ingrese un monto válido mayor a cero.';
+    } else if (montoNum > factura.balancePendiente + 0.001) {
+      nuevos.monto = `El monto no puede superar el balance pendiente (${formatCurrency(factura.balancePendiente)}).`;
     }
 
     if (requiereReferencia && !form.referencia.trim()) {
-      nuevosErrores.referencia = 'La referencia es obligatoria para este método de pago.';
+      nuevos.referencia = 'La referencia es obligatoria para este método de pago.';
     }
 
-    setErrores(nuevosErrores);
-    return Object.keys(nuevosErrores).length === 0;
+    setErrores(nuevos);
+    return Object.keys(nuevos).length === 0;
   };
 
-  // ── Confirmar pago ──────────────────────────────────────────────────────────
-  const handleConfirmar = () => {
-    if (!factura || !validar()) return;
+  const handleConfirmar = async () => {
+    if (enviando || !validar()) return;
+    setEnviando(true);
+    setErrorGeneral('');
 
-    registrarPago({
-      facturaId: factura.id,
-      numeroFactura: factura.numeroFactura,
-      suplidorNombre: factura.suplidorNombre,
-      fecha: new Date(),
-      monto: parseFloat(form.monto),
-      metodoPago: form.metodoPago,
-      // En efectivo no aplica referencia; guardamos cadena vacía para no romper el tipo
-      referencia: requiereReferencia ? form.referencia.trim() : '',
-      notas: form.notas.trim(),
-    });
-
-    onOpenChange(false);
+    try {
+      await registrarPago({
+        facturaId: factura.id,
+        numeroFactura: factura.numeroFactura,
+        suplidorNombre: factura.suplidorNombre,
+        fecha: new Date(),
+        monto: Math.round(montoNum * 100) / 100,
+        metodoPago: form.metodoPago,
+        referencia: requiereReferencia ? form.referencia.trim() : '',
+        notas: form.notas.trim(),
+      });
+      onSuccess(montoNum);
+    } catch (error) {
+      setErrorGeneral(error instanceof Error ? error.message : 'No se pudo registrar el pago.');
+    } finally {
+      setEnviando(false);
+    }
   };
-
-  const handleCancelar = () => onOpenChange(false);
 
   const set = <K extends keyof typeof ESTADO_INICIAL>(key: K, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }));
-    // Limpiar error del campo al editar
     if (errores[key]) setErrores(prev => ({ ...prev, [key]: undefined }));
   };
+
+  const atajos = [
+    { label: 'Total', valor: factura.balancePendiente },
+    { label: '50%', valor: factura.balancePendiente / 2 },
+    { label: '25%', valor: factura.balancePendiente / 4 },
+  ];
+
+  return (
+    <form
+      className="space-y-5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleConfirmar();
+      }}
+    >
+      {/* Resumen de la factura */}
+      <div className="grid grid-cols-3 gap-2 rounded-xl border bg-gray-50 p-3 text-center">
+        <div>
+          <p className="text-[11px] uppercase text-gray-500">Monto factura</p>
+          <p className="text-sm font-semibold text-gray-900">{formatCurrency(factura.montoTotal)}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase text-gray-500">Pendiente</p>
+          <p className="text-sm font-semibold text-red-600">{formatCurrency(factura.balancePendiente)}</p>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase text-gray-500">Quedará</p>
+          <p className={cn('text-sm font-semibold', restante <= 0.001 ? 'text-emerald-600' : 'text-gray-900')}>
+            {formatCurrency(restante)}
+          </p>
+        </div>
+      </div>
+
+      {errorGeneral && (
+        <Alert variant="destructive">
+          <AlertTitle>No se pudo registrar el pago</AlertTitle>
+          <AlertDescription>{errorGeneral}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Monto */}
+      <div>
+        <Label htmlFor="pago-monto">
+          Monto del pago <span className="text-red-500">*</span>
+        </Label>
+        <div className="relative mt-1.5">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">RD$</span>
+          <Input
+            id="pago-monto"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={form.monto}
+            onChange={e => set('monto', e.target.value)}
+            placeholder="0.00"
+            className={cn('pl-12 text-base font-semibold', errores.monto && 'border-red-500')}
+            autoFocus
+          />
+        </div>
+        <div className="mt-2 flex gap-1.5">
+          {atajos.map(a => (
+            <button
+              key={a.label}
+              type="button"
+              onClick={() => set('monto', a.valor.toFixed(2))}
+              className="rounded-full border px-2.5 py-0.5 text-xs text-gray-600 transition-colors hover:border-gray-900 hover:text-gray-900"
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+        {errores.monto && <p className="mt-1 text-xs text-red-500">{errores.monto}</p>}
+      </div>
+
+      {/* Método de pago */}
+      <div>
+        <Label>
+          Método de pago <span className="text-red-500">*</span>
+        </Label>
+        <div className="mt-1.5 grid grid-cols-3 gap-2">
+          {METODOS.map(m => {
+            const Icon = m.icon;
+            const activo = form.metodoPago === m.value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => {
+                  set('metodoPago', m.value);
+                  if (m.value === 'Efectivo') setErrores(prev => ({ ...prev, referencia: undefined }));
+                }}
+                className={cn(
+                  'flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium transition-all',
+                  activo ? 'border-gray-900 bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:border-gray-400'
+                )}
+              >
+                <Icon className="size-5" />
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Referencia */}
+      {requiereReferencia && (
+        <div>
+          <Label htmlFor="pago-referencia">
+            {form.metodoPago === 'Cheque' ? 'No. de cheque' : 'Referencia / No. transacción'} <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            id="pago-referencia"
+            value={form.referencia}
+            onChange={e => set('referencia', e.target.value)}
+            placeholder={form.metodoPago === 'Cheque' ? 'CHQ-001234' : 'TRF-001234'}
+            className={cn('mt-1.5', errores.referencia && 'border-red-500')}
+          />
+          {errores.referencia && <p className="mt-1 text-xs text-red-500">{errores.referencia}</p>}
+        </div>
+      )}
+
+      {/* Notas */}
+      <div>
+        <Label htmlFor="pago-notas">
+          Notas <span className="text-xs font-normal text-gray-400">(opcional)</span>
+        </Label>
+        <Textarea
+          id="pago-notas"
+          value={form.notas}
+          onChange={e => set('notas', e.target.value)}
+          placeholder="Información adicional sobre el pago"
+          rows={2}
+          className="mt-1.5"
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={enviando}>
+          {cancelLabel}
+        </Button>
+        <Button type="submit" disabled={enviando} className="min-w-[160px]">
+          {enviando ? (
+            <>
+              <Loader2 className="size-4 mr-2 animate-spin" /> Registrando…
+            </>
+          ) : (
+            <>Confirmar pago{!isNaN(montoNum) && montoNum > 0 ? ` · ${formatCurrency(montoNum)}` : ''}</>
+          )}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Diálogo (Cuentas por Pagar, Dashboard) ───────────────────────────────────
+
+interface PagoDialogProps {
+  /** ID de la factura a pagar. Pasar null / undefined cierra el diálogo. */
+  facturaId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: (monto: number) => void;
+}
+
+export function PagoDialog({ facturaId, open, onOpenChange, onSuccess }: PagoDialogProps) {
+  const { facturas } = useData();
+  const factura = facturas.find(f => f.id === facturaId);
 
   if (!factura) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Registrar Pago</DialogTitle>
+          <DialogTitle>Registrar pago</DialogTitle>
           <DialogDescription>
-            {factura.numeroFactura} — {factura.suplidorNombre}
+            {factura.numeroFactura}
+            {factura.numeroExterno ? ` (Ref. ${factura.numeroExterno})` : ''} — {factura.suplidorNombre}
           </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-4">
-
-          {/* Monto */}
-          <div>
-            <Label htmlFor="pago-monto">
-              Monto del Pago <span className="text-red-500">*</span>
-            </Label>
-            <Input
-              id="pago-monto"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={form.monto}
-              onChange={e => set('monto', e.target.value)}
-              placeholder="0.00"
-              className={errores.monto ? 'border-red-500' : ''}
-            />
-            {errores.monto && (
-              <p className="text-xs text-red-500 mt-1">{errores.monto}</p>
-            )}
-            <p className="text-xs text-gray-400 mt-1">
-              Balance pendiente: {formatCurrency(factura.balancePendiente)}
-            </p>
-          </div>
-
-          {/* Método de pago */}
-          <div>
-            <Label>
-              Método de Pago <span className="text-red-500">*</span>
-            </Label>
-            <Select
-              value={form.metodoPago}
-              onValueChange={v => {
-                set('metodoPago', v);
-                // Limpiar error de referencia al cambiar método
-                if (v === 'Efectivo') setErrores(prev => ({ ...prev, referencia: undefined }));
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Transferencia">Transferencia</SelectItem>
-                <SelectItem value="Cheque">Cheque</SelectItem>
-                <SelectItem value="Efectivo">Efectivo</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Referencia — oculta en Efectivo */}
-          {requiereReferencia && (
-            <div>
-              <Label htmlFor="pago-referencia">
-                Referencia / No. Transacción <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="pago-referencia"
-                value={form.referencia}
-                onChange={e => set('referencia', e.target.value)}
-                placeholder={form.metodoPago === 'Cheque' ? 'CHQ-001234' : 'TRF-001234'}
-                className={errores.referencia ? 'border-red-500' : ''}
-              />
-              {errores.referencia && (
-                <p className="text-xs text-red-500 mt-1">{errores.referencia}</p>
-              )}
-            </div>
-          )}
-
-          {/* Notas */}
-          <div>
-            <Label htmlFor="pago-notas">
-              Notas{' '}
-              <span className="text-gray-400 text-xs font-normal">(opcional)</span>
-            </Label>
-            <Textarea
-              id="pago-notas"
-              value={form.notas}
-              onChange={e => set('notas', e.target.value)}
-              placeholder="Información adicional sobre el pago"
-              rows={3}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={handleCancelar}>
-            Cancelar
-          </Button>
-          <Button onClick={handleConfirmar}>
-            Confirmar Pago
-          </Button>
-        </DialogFooter>
+        <PagoForm
+          factura={factura}
+          onCancel={() => onOpenChange(false)}
+          onSuccess={(monto) => {
+            onSuccess?.(monto);
+            onOpenChange(false);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
-}
-
-// ─── Utilidad local ───────────────────────────────────────────────────────────
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('es-DO', {
-    style: 'currency',
-    currency: 'DOP',
-  }).format(value);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Factura, Suplidor, useData } from '../context/DataContext';
+import { Suplidor, useData } from '../context/DataContext';
 import { Card, CardContent } from '../components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
@@ -10,13 +10,17 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { PagoDialog } from '../components/PagoDialog';
+import { PagoForm } from '../components/PagoDialog';
+import {
+  Avatar, Kpi, Segmented, VencimientoChip, ESTADO_STYLES, estaAbierta, estaVencida,
+  formatCurrency, formatDateShort as formatDate, normalizar
+} from '../components/finance-ui';
 import { cn } from '../components/ui/utils';
 import { useAuth } from '../context/AuthContext';
 import {
   Plus, Search, MoreVertical, Edit, Trash2, Phone, Mail, MapPin, FileText, ChevronRight,
   LayoutGrid, List, ArrowUpDown, ArrowUp, ArrowDown, Users, Wallet, AlertTriangle, CheckCircle2,
-  CreditCard, Receipt, X, CalendarClock
+  CreditCard, Receipt, X, CalendarClock, ArrowLeft, CheckCircle
 } from 'lucide-react';
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
@@ -37,117 +41,12 @@ const ORDEN_LABELS: Record<OrdenSuplidores, string> = {
 
 const PREFS_KEY = 'suplidores-prefs';
 
-const AVATAR_COLORS = [
-  'from-sky-500 to-blue-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-400 to-orange-500',
-  'from-emerald-500 to-teal-600',
-  'from-violet-500 to-purple-600',
-  'from-cyan-500 to-sky-600'
-];
-
-const colorDe = (texto: string) => {
-  let hash = 0;
-  for (let i = 0; i < texto.length; i++) hash = (hash * 31 + texto.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-};
-
-const iniciales = (nombre: string) => {
-  const partes = nombre.trim().split(/\s+/).filter(Boolean);
-  if (partes.length === 0) return '?';
-  return (partes.length > 1 ? partes[0][0] + partes[1][0] : partes[0].slice(0, 2)).toUpperCase();
-};
-
-const normalizar = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('es-DO', { style: 'currency', currency: 'DOP' }).format(value);
-
-const formatDate = (value: Date | string) =>
-  new Date(value).toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' });
-
-const hoy = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const estaAbierta = (f: Factura) => f.estado === 'Pendiente' || f.estado === 'Parcial';
-const estaVencida = (f: Factura) => estaAbierta(f) && new Date(f.fechaVencimiento) < hoy();
-const diasEntre = (a: Date, b: Date) => Math.round((a.getTime() - b.getTime()) / 86_400_000);
-
-const ESTADO_STYLES: Record<Factura['estado'], string> = {
-  Pendiente: 'bg-red-50 text-red-700 border-red-200',
-  Parcial: 'bg-amber-50 text-amber-700 border-amber-200',
-  Pagado: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Anulada: 'bg-gray-100 text-gray-500 border-gray-200'
-};
-
 interface Stats {
   total: number;
   abiertas: number;
   vencidas: number;
   deuda: number;
   facturado: number;
-}
-
-function Avatar({ nombre, size = 'md' }: { nombre: string; size?: 'md' | 'lg' }) {
-  return (
-    <div
-      className={cn(
-        'flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br font-semibold text-white shadow-sm',
-        colorDe(nombre),
-        size === 'lg' ? 'size-14 text-lg' : 'size-11 text-sm'
-      )}
-    >
-      {iniciales(nombre)}
-    </div>
-  );
-}
-
-function Kpi({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: string | number; tone: string }) {
-  return (
-    <Card className="gap-0 py-0">
-      <CardContent className="flex items-center gap-4 p-5">
-        <div className={cn('flex size-11 items-center justify-center rounded-xl', tone)}>
-          <Icon className="size-5" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-500">{label}</p>
-          <p className="truncate text-xl font-semibold text-gray-900">{value}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Segmented<T extends string>({ value, onChange, options }: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string; count?: number }[];
-}) {
-  return (
-    <div className="inline-flex rounded-lg bg-gray-100 p-1">
-      {options.map(o => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={cn(
-            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all',
-            value === o.value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-          )}
-        >
-          {o.label}
-          {o.count !== undefined && (
-            <span className={cn('rounded-full px-1.5 text-xs', value === o.value ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600')}>
-              {o.count}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 // ─── Página ───────────────────────────────────────────────────────────────────
@@ -205,6 +104,13 @@ export function Suplidores() {
   const [ordenFacturas, setOrdenFacturas] = useState<OrdenFacturas>('vencimiento');
   const [busquedaFactura, setBusquedaFactura] = useState('');
   const [facturaAPagar, setFacturaAPagar] = useState<string | null>(null);
+  const [mensajePago, setMensajePago] = useState('');
+
+  useEffect(() => {
+    if (!mensajePago) return;
+    const t = window.setTimeout(() => setMensajePago(''), 5000);
+    return () => window.clearTimeout(t);
+  }, [mensajePago]);
 
   // ── Estadísticas por suplidor ─────────────────────────────────────────────
   const statsPorSuplidor = useMemo(() => {
@@ -298,15 +204,28 @@ export function Suplidores() {
   };
 
   // ── Panel de facturas ─────────────────────────────────────────────────────
-  const abrirPanel = (suplidor: Suplidor, tab: 'facturas' | 'pagos' = 'facturas') => {
+  const abrirPanel = (suplidor: Suplidor, tab: 'facturas' | 'pagos' = 'facturas', pagarProxima = false) => {
     const st = statsDe(suplidor.id);
     setTabPanel(tab);
     setFiltroFacturas(st.abiertas > 0 ? 'pendientes' : 'todas');
     setBusquedaFactura('');
+    setMensajePago('');
+    const proxima = pagarProxima
+      ? facturas
+          .filter(f => f.suplidorId === suplidor.id && estaAbierta(f))
+          .sort((a, b) => new Date(a.fechaVencimiento).getTime() - new Date(b.fechaVencimiento).getTime())[0]
+      : undefined;
+    setFacturaAPagar(proxima?.id ?? null);
     ejecutarDespuesDeCerrarMenu(() => setSuplidorPanelId(suplidor.id));
   };
 
+  const cerrarPanel = () => {
+    setSuplidorPanelId(null);
+    setFacturaAPagar(null);
+  };
+
   const suplidorPanel = suplidores.find(s => s.id === suplidorPanelId) ?? null;
+  const facturaPago = facturaAPagar ? facturas.find(f => f.id === facturaAPagar && estaAbierta(f)) ?? null : null;
 
   const facturasPanel = useMemo(
     () => (suplidorPanelId ? facturas.filter(f => f.suplidorId === suplidorPanelId) : []),
@@ -643,7 +562,7 @@ export function Suplidores() {
                     <Button
                       size="sm"
                       disabled={st.abiertas === 0}
-                      onClick={() => abrirPanel(suplidor)}
+                      onClick={() => abrirPanel(suplidor, 'facturas', true)}
                     >
                       <CreditCard className="size-4 mr-1.5" />
                       Pagar
@@ -730,9 +649,44 @@ export function Suplidores() {
       )}
 
       {/* ── Panel lateral: facturas y pagos del suplidor ── */}
-      <Sheet open={suplidorPanel !== null} onOpenChange={(open) => { if (!open) setSuplidorPanelId(null); }}>
+      <Sheet open={suplidorPanel !== null} onOpenChange={(open) => { if (!open) cerrarPanel(); }}>
         <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-2xl">
-          {suplidorPanel && (
+          {suplidorPanel && facturaPago ? (
+            <>
+              {/* ── Vista de pago dentro del panel ── */}
+              <SheetHeader className="border-b p-6">
+                <button
+                  type="button"
+                  onClick={() => setFacturaAPagar(null)}
+                  className="mb-2 flex w-fit items-center gap-1 text-sm text-gray-500 hover:text-gray-900"
+                >
+                  <ArrowLeft className="size-4" /> Volver a las facturas
+                </button>
+                <div className="flex items-center gap-3">
+                  <Avatar nombre={suplidorPanel.nombre} />
+                  <div className="min-w-0">
+                    <SheetTitle className="text-xl">Registrar pago</SheetTitle>
+                    <SheetDescription className="truncate">
+                      {facturaPago.numeroFactura}
+                      {facturaPago.numeroExterno ? ` (Ref. ${facturaPago.numeroExterno})` : ''} · {suplidorPanel.nombre} · vence {formatDate(facturaPago.fechaVencimiento)}
+                    </SheetDescription>
+                  </div>
+                </div>
+              </SheetHeader>
+              <div className="p-6">
+                <PagoForm
+                  factura={facturaPago}
+                  cancelLabel="Volver"
+                  onCancel={() => setFacturaAPagar(null)}
+                  onSuccess={(monto) => {
+                    setMensajePago(`Pago de ${formatCurrency(monto)} registrado en la factura ${facturaPago.numeroFactura}.`);
+                    setFacturaAPagar(null);
+                    setTabPanel('facturas');
+                  }}
+                />
+              </div>
+            </>
+          ) : suplidorPanel && (
             <>
               <SheetHeader className="border-b bg-gradient-to-b from-gray-50 to-white p-6">
                 <div className="flex items-center gap-4">
@@ -781,6 +735,16 @@ export function Suplidores() {
                       <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600" style={{ width: `${resumenPanel.porcentaje}%` }} />
                     </div>
                     <p className="mt-1 text-xs text-gray-500">{resumenPanel.porcentaje}% de lo facturado ya está pagado</p>
+                  </div>
+                )}
+
+                {mensajePago && (
+                  <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                    <CheckCircle className="size-4 shrink-0" />
+                    <span className="flex-1">{mensajePago}</span>
+                    <button type="button" onClick={() => setMensajePago('')} className="text-emerald-600 hover:text-emerald-900" aria-label="Cerrar">
+                      <X className="size-4" />
+                    </button>
                   </div>
                 )}
 
@@ -870,7 +834,6 @@ export function Suplidores() {
                       <ul className="space-y-2.5">
                         {facturasPanelVisibles.map(f => {
                           const vencida = estaVencida(f);
-                          const dias = diasEntre(new Date(f.fechaVencimiento), hoy());
                           const pct = f.montoTotal > 0 ? Math.round(((f.montoTotal - f.balancePendiente) / f.montoTotal) * 100) : 0;
                           return (
                             <li
@@ -886,16 +849,7 @@ export function Suplidores() {
                                   <div className="flex flex-wrap items-center gap-2">
                                     <p className="font-semibold text-gray-900">{f.numeroFactura}</p>
                                     <Badge className={ESTADO_STYLES[f.estado]}>{f.estado}</Badge>
-                                    {vencida && (
-                                      <Badge className="border-red-200 bg-red-100 text-red-700">
-                                        Vencida hace {Math.abs(dias)} día{Math.abs(dias) !== 1 ? 's' : ''}
-                                      </Badge>
-                                    )}
-                                    {!vencida && estaAbierta(f) && dias <= 7 && (
-                                      <Badge className="border-amber-200 bg-amber-50 text-amber-700">
-                                        {dias === 0 ? 'Vence hoy' : `Vence en ${dias} día${dias !== 1 ? 's' : ''}`}
-                                      </Badge>
-                                    )}
+                                    <VencimientoChip factura={f} />
                                   </div>
                                   <p className="mt-1 text-xs text-gray-500">
                                     {f.numeroExterno && <>Ext: {f.numeroExterno} · </>}
@@ -965,13 +919,6 @@ export function Suplidores() {
           )}
         </SheetContent>
       </Sheet>
-
-      {/* Registrar pago (mismo diálogo que Cuentas por Pagar) */}
-      <PagoDialog
-        facturaId={facturaAPagar}
-        open={facturaAPagar !== null}
-        onOpenChange={(open) => { if (!open) setFacturaAPagar(null); }}
-      />
 
       {/* Dialog para agregar/editar suplidor */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setErrorNombre(''); }}>

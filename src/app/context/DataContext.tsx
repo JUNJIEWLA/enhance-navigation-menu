@@ -469,7 +469,9 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
 
   // ─── Pagos ─────────────────────────────────────────────────────────────────
   const registrarPago = async (pago: Omit<Pago, 'id'>) => {
-    if (!perfil?.empresaId) return;
+    if (!perfil?.empresaId) {
+      throw new Error('Tu usuario no tiene una empresa asignada; no se puede registrar el pago.');
+    }
 
     const { data, error } = await supabase
       .from('pagos')
@@ -486,7 +488,12 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       .select()
       .single();
 
-    if (!error && data) {
+    if (error || !data) {
+      console.error('Error al registrar pago:', error);
+      throw new Error(error?.message ? `No se pudo registrar el pago: ${error.message}` : 'No se pudo registrar el pago.');
+    }
+
+    {
       setPagos(prev => [{ ...pago, id: data.id }, ...prev]);
       await registrarEvento({
         evento: 'Pago Registrado',
@@ -503,11 +510,16 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
         const nuevoBalance = Math.max(factura.montoTotal - totalPagadoActual, 0);
         const nuevoEstado = calcularEstadoDesdeBalance(factura.montoTotal, totalPagadoActual);
 
-        await supabase
+        const { error: errorFactura } = await supabase
           .from('facturas')
           .update({ balance_pendiente: nuevoBalance, estado: nuevoEstado })
           .eq('empresa_id', perfil.empresaId)
           .eq('id', pago.facturaId);
+
+        if (errorFactura) {
+          console.error('Error al actualizar balance de factura:', errorFactura);
+          throw new Error(`El pago se guardó, pero no se pudo actualizar el balance de la factura: ${errorFactura.message}`);
+        }
 
         setFacturas(prev => prev.map(f =>
           f.id === pago.facturaId
