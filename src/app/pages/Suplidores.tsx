@@ -847,12 +847,16 @@ export function Suplidores() {
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <p className="font-semibold text-gray-900">{f.numeroFactura}</p>
+                                    <p className="font-mono text-base font-semibold text-blue-700">{f.numeroFactura}</p>
+                                    {f.numeroExterno && (
+                                      <span className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 font-mono text-sm font-semibold text-gray-900">
+                                        Ref. {f.numeroExterno}
+                                      </span>
+                                    )}
                                     <Badge className={ESTADO_STYLES[f.estado]}>{f.estado}</Badge>
                                     <VencimientoChip factura={f} />
                                   </div>
                                   <p className="mt-1 text-xs text-gray-500">
-                                    {f.numeroExterno && <>Ext: {f.numeroExterno} · </>}
                                     Emitida {formatDate(f.fechaEmision)} · Vence {formatDate(f.fechaVencimiento)}
                                   </p>
                                 </div>

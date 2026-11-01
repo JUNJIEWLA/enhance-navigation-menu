@@ -21,7 +21,7 @@ import { PagoDialog } from '../components/PagoDialog';
 import { useAuth } from '../context/AuthContext';
 
 type FiltroEstado = 'todas' | 'abiertas' | 'vencidas' | 'pronto' | 'parciales' | 'pagadas';
-type OrdenKey = 'prioridad' | 'id' | 'suplidor' | 'emision' | 'vencimiento' | 'monto' | 'balance';
+type OrdenKey = 'prioridad' | 'id' | 'ref' | 'suplidor' | 'emision' | 'vencimiento' | 'monto' | 'balance';
 type OrdenDir = 'asc' | 'desc';
 
 const ORDEN_LABELS: Record<OrdenKey, string> = {
@@ -31,7 +31,8 @@ const ORDEN_LABELS: Record<OrdenKey, string> = {
   balance: 'Balance pendiente',
   monto: 'Monto total',
   suplidor: 'Suplidor (A → Z)',
-  id: 'ID interno'
+  id: 'ID interno',
+  ref: 'Ref. proveedor'
 };
 
 const ORDEN_DIR_DEFAULT: Record<OrdenKey, OrdenDir> = {
@@ -41,7 +42,8 @@ const ORDEN_DIR_DEFAULT: Record<OrdenKey, OrdenDir> = {
   balance: 'desc',
   monto: 'desc',
   suplidor: 'asc',
-  id: 'asc'
+  id: 'asc',
+  ref: 'asc'
 };
 
 // Helper para mensajes de error inline
@@ -201,6 +203,7 @@ export function CuentasPorPagar() {
       let diff = 0;
       switch (orden.key) {
         case 'id': diff = a.numeroFactura.localeCompare(b.numeroFactura, 'es', { numeric: true }); break;
+        case 'ref': diff = (a.numeroExterno || '￿').localeCompare(b.numeroExterno || '￿', 'es', { numeric: true }); break;
         case 'suplidor': diff = a.suplidorNombre.localeCompare(b.suplidorNombre, 'es', { sensitivity: 'base' }); break;
         case 'emision': diff = t(a.fechaEmision) - t(b.fechaEmision); break;
         case 'vencimiento': diff = t(a.fechaVencimiento) - t(b.fechaVencimiento); break;
@@ -626,7 +629,8 @@ export function CuentasPorPagar() {
             <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
                 {([
-                  ['id', 'Factura', ''],
+                  ['id', 'ID Interno', ''],
+                  ['ref', 'Ref. Proveedor', ''],
                   ['suplidor', 'Suplidor', ''],
                   ['emision', 'Emisión', ''],
                   ['vencimiento', 'Vencimiento', ''],
@@ -666,8 +670,16 @@ export function CuentasPorPagar() {
                     )}
                   >
                     <td className={cn('border-l-2 px-4 py-3', vencida ? 'border-l-red-500' : 'border-l-transparent')}>
-                      <p className="font-mono font-medium text-blue-700">{factura.numeroFactura}</p>
-                      {factura.numeroExterno && <p className="text-xs text-gray-500">Ref. {factura.numeroExterno}</p>}
+                      <span className="whitespace-nowrap font-mono text-base font-semibold text-blue-700">{factura.numeroFactura}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {factura.numeroExterno ? (
+                        <span className="inline-block whitespace-nowrap rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 font-mono text-base font-semibold text-gray-900">
+                          {factura.numeroExterno}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -742,7 +754,7 @@ export function CuentasPorPagar() {
             {facturasFiltradas.length > 0 && (
               <tfoot className="border-t bg-gray-50 text-sm">
                 <tr>
-                  <td colSpan={4} className="px-4 py-3 font-medium text-gray-600">
+                  <td colSpan={5} className="px-4 py-3 font-medium text-gray-600">
                     Total ({facturasFiltradas.length} factura{facturasFiltradas.length !== 1 ? 's' : ''})
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-gray-900">{formatCurrency(totales.monto)}</td>

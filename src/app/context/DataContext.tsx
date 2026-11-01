@@ -473,20 +473,34 @@ export const DataProvider = ({ children }: { children: ReactNode }) => {
       throw new Error('Tu usuario no tiene una empresa asignada; no se puede registrar el pago.');
     }
 
-    const { data, error } = await supabase
+    const filaBase = {
+      empresa_id: perfil.empresaId,
+      factura_id: pago.facturaId,
+      monto: pago.monto,
+      // Enviar ISO string con hora completa para que Supabase lo almacene correctamente
+      fecha: pago.fecha instanceof Date ? pago.fecha.toISOString() : pago.fecha,
+      metodo_pago: pago.metodoPago,
+    };
+
+    let { data, error } = await supabase
       .from('pagos')
-      .insert([{
-        empresa_id: perfil.empresaId,
-        factura_id: pago.facturaId,
-        monto: pago.monto,
-        // Enviar ISO string con hora completa para que Supabase lo almacene correctamente
-        fecha: pago.fecha instanceof Date ? pago.fecha.toISOString() : pago.fecha,
-        metodo_pago: pago.metodoPago,
-        referencia: pago.referencia || null,
-        nota: pago.notas
-      }])
+      .insert([{ ...filaBase, referencia: pago.referencia || null, nota: pago.notas }])
       .select()
       .single();
+
+    // Si la BD todavía no tiene la columna `referencia` (ver sql/pagos_referencia.sql),
+    // guardamos la referencia dentro de la nota para no bloquear el pago.
+    if (error && error.code === 'PGRST204' && error.message.includes('referencia')) {
+      console.warn('La tabla pagos no tiene la columna "referencia"; se guarda en la nota. Ejecute sql/pagos_referencia.sql.');
+      const notaConRef = [pago.referencia ? `Ref. ${pago.referencia}` : '', pago.notas || '']
+        .filter(Boolean)
+        .join(' — ');
+      ({ data, error } = await supabase
+        .from('pagos')
+        .insert([{ ...filaBase, nota: notaConRef }])
+        .select()
+        .single());
+    }
 
     if (error || !data) {
       console.error('Error al registrar pago:', error);
