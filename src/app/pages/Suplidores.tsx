@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Suplidor, useData } from '../context/DataContext';
 import { Card, CardContent } from '../components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
@@ -16,11 +16,12 @@ import {
   formatCurrency, formatDateShort as formatDate, normalizar
 } from '../components/finance-ui';
 import { cn } from '../components/ui/utils';
+import { ContribuyenteDGII, consultarRnc, esRncValido, soloDigitos } from '../lib/rnc';
 import { useAuth } from '../context/AuthContext';
 import {
   Plus, Search, MoreVertical, Edit, Trash2, Phone, Mail, MapPin, FileText, ChevronRight,
   LayoutGrid, List, ArrowUpDown, ArrowUp, ArrowDown, Users, Wallet, AlertTriangle, CheckCircle2,
-  CreditCard, Receipt, X, CalendarClock, ArrowLeft, CheckCircle
+  CreditCard, Receipt, X, CalendarClock, ArrowLeft, CheckCircle, Loader2, BadgeCheck, SearchCheck
 } from 'lucide-react';
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
@@ -87,6 +88,17 @@ export function Suplidores() {
   const [guardando, setGuardando] = useState(false);
   const [errorNombre, setErrorNombre] = useState('');
   const [errorOperacion, setErrorOperacion] = useState('');
+
+  // ── Consulta de RNC en la DGII ────────────────────────────────────────────
+  type EstadoRnc =
+    | { tipo: 'inactivo' }
+    | { tipo: 'cargando' }
+    | { tipo: 'ok'; datos: ContribuyenteDGII }
+    | { tipo: 'error'; mensaje: string };
+  const [consultaRnc, setConsultaRnc] = useState<EstadoRnc>({ tipo: 'inactivo' });
+  const [nombreManual, setNombreManual] = useState(false);
+  const [rncEditado, setRncEditado] = useState(false);
+  const rncAbortRef = useRef<AbortController | null>(null);
   const [suplidorActual, setSuplidorActual] = useState({
     id: '',
     codigo: '',
@@ -286,12 +298,60 @@ export function Suplidores() {
     [facturasPanel]
   );
 
+  // ── Consulta de RNC (DGII) ────────────────────────────────────────────────
+  const ejecutarConsultaRnc = async (valor: string) => {
+    rncAbortRef.current?.abort();
+    if (!esRncValido(valor)) return;
+    const ctrl = new AbortController();
+    rncAbortRef.current = ctrl;
+    setConsultaRnc({ tipo: 'cargando' });
+    try {
+      const datos = await consultarRnc(valor, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      setConsultaRnc({ tipo: 'ok', datos });
+      setSuplidorActual(prev => ({
+        ...prev,
+        ruc: datos.rnc,
+        // Solo se reemplaza el nombre si el usuario no lo escribió a mano
+        nombre: nombreManual && prev.nombre.trim() ? prev.nombre : datos.nombre || prev.nombre
+      }));
+      if (datos.nombre) setErrorNombre('');
+      setErrorOperacion('');
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
+      setConsultaRnc({ tipo: 'error', mensaje: e instanceof Error ? e.message : 'No se pudo consultar el RNC.' });
+    }
+  };
+
+  // Consulta automática cuando el RNC (9 dígitos) o la cédula (11) está completo
+  useEffect(() => {
+    if (!dialogOpen || !rncEditado) return;
+    const digitos = soloDigitos(suplidorActual.ruc);
+    if (!esRncValido(digitos)) {
+      rncAbortRef.current?.abort();
+      setConsultaRnc({ tipo: 'inactivo' });
+      return;
+    }
+    if (consultaRnc.tipo === 'ok' && soloDigitos(consultaRnc.datos.rnc) === digitos) return;
+    const t = window.setTimeout(() => ejecutarConsultaRnc(digitos), 450);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suplidorActual.ruc, dialogOpen, rncEditado]);
+
+  const reiniciarConsultaRnc = () => {
+    rncAbortRef.current?.abort();
+    setConsultaRnc({ tipo: 'inactivo' });
+    setNombreManual(false);
+    setRncEditado(false);
+  };
+
   // ── Crear / editar ────────────────────────────────────────────────────────
   const abrirDialogNuevo = () => {
     setEditando(false);
     setErrorNombre('');
     setErrorOperacion('');
     setSuplidorActual({ id: '', codigo: generarCodigo(), nombre: '', ruc: '', telefono: '', email: '', direccion: '' });
+    reiniciarConsultaRnc();
     setDialogOpen(true);
   };
 
@@ -300,6 +360,8 @@ export function Suplidores() {
     setErrorNombre('');
     setErrorOperacion('');
     setSuplidorActual({ ...suplidor, codigo: suplidor.codigo || '' });
+    reiniciarConsultaRnc();
+    setNombreManual(true); // en edición no se reemplaza el nombre existente
     ejecutarDespuesDeCerrarMenu(() => setDialogOpen(true));
   };
 
@@ -940,15 +1002,99 @@ export function Suplidores() {
           ) : null}
 
           <div className="space-y-4">
+            {/* RNC primero: al completarlo se consulta la DGII y se rellena el nombre */}
             <div>
-              <Label htmlFor="codigo">Código</Label>
-              <Input
-                id="codigo"
-                value={suplidorActual.codigo}
-                readOnly
-                className="bg-gray-50 text-gray-500 cursor-not-allowed font-mono"
-                tabIndex={-1}
-              />
+              <Label htmlFor="ruc">
+                RNC / Cédula <span className="text-red-500">*</span>
+              </Label>
+              <div className="mt-1.5 flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    id="ruc"
+                    value={suplidorActual.ruc}
+                    onChange={(e) => {
+                      setRncEditado(true);
+                      setSuplidorActual({ ...suplidorActual, ruc: e.target.value });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        setRncEditado(true);
+                        ejecutarConsultaRnc(suplidorActual.ruc);
+                      }
+                    }}
+                    placeholder="131-45678-9"
+                    inputMode="numeric"
+                    autoFocus={!editando}
+                    className={cn('pr-9', errorOperacion && 'border-red-500 focus-visible:ring-red-500')}
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                    {consultaRnc.tipo === 'cargando' && <Loader2 className="size-4 animate-spin text-gray-400" />}
+                    {consultaRnc.tipo === 'ok' && <BadgeCheck className="size-4 text-emerald-600" />}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { setRncEditado(true); ejecutarConsultaRnc(suplidorActual.ruc); }}
+                  disabled={!esRncValido(suplidorActual.ruc) || consultaRnc.tipo === 'cargando'}
+                >
+                  <SearchCheck className="size-4 mr-1.5" />
+                  Consultar DGII
+                </Button>
+              </div>
+
+              {consultaRnc.tipo === 'inactivo' && (
+                <p className="mt-1 text-xs text-gray-500">Escriba el RNC (9 dígitos) o la cédula (11) y el nombre se completa solo.</p>
+              )}
+              {consultaRnc.tipo === 'cargando' && (
+                <p className="mt-1 text-xs text-gray-500">Consultando en la DGII…</p>
+              )}
+              {consultaRnc.tipo === 'error' && (
+                <p className="mt-1 text-xs text-amber-700">{consultaRnc.mensaje}</p>
+              )}
+              {consultaRnc.tipo === 'ok' && (
+                <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-gray-900">{consultaRnc.datos.nombre}</span>
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                        consultaRnc.datos.estado === 'ACTIVO' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                      )}
+                    >
+                      {consultaRnc.datos.estado || '—'}
+                    </span>
+                  </div>
+                  {consultaRnc.datos.nombreComercial && consultaRnc.datos.nombreComercial !== consultaRnc.datos.nombre && (
+                    <p className="mt-0.5 text-gray-600">Nombre comercial: {consultaRnc.datos.nombreComercial}</p>
+                  )}
+                  {consultaRnc.datos.actividad && <p className="mt-0.5 line-clamp-1 text-gray-500">{consultaRnc.datos.actividad}</p>}
+                  {consultaRnc.datos.estado && consultaRnc.datos.estado !== 'ACTIVO' && (
+                    <p className="mt-1 font-medium text-red-700">Atención: este contribuyente no está activo en la DGII.</p>
+                  )}
+                  {suplidorActual.nombre !== consultaRnc.datos.nombre && (
+                    <div className="mt-1.5 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        className="font-medium text-emerald-700 hover:underline"
+                        onClick={() => { setSuplidorActual({ ...suplidorActual, nombre: consultaRnc.datos.nombre }); setNombreManual(false); setErrorNombre(''); }}
+                      >
+                        Usar razón social
+                      </button>
+                      {consultaRnc.datos.nombreComercial && suplidorActual.nombre !== consultaRnc.datos.nombreComercial && (
+                        <button
+                          type="button"
+                          className="font-medium text-emerald-700 hover:underline"
+                          onClick={() => { setSuplidorActual({ ...suplidorActual, nombre: consultaRnc.datos.nombreComercial }); setNombreManual(true); setErrorNombre(''); }}
+                        >
+                          Usar nombre comercial
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>
@@ -959,6 +1105,7 @@ export function Suplidores() {
                 id="nombre"
                 value={suplidorActual.nombre}
                 onChange={(e) => {
+                  setNombreManual(true);
                   setSuplidorActual({ ...suplidorActual, nombre: e.target.value });
                   if (e.target.value.trim()) setErrorNombre('');
                 }}
@@ -969,13 +1116,13 @@ export function Suplidores() {
             </div>
 
             <div>
-              <Label htmlFor="ruc">RNC / Cédula</Label>
+              <Label htmlFor="codigo">Código</Label>
               <Input
-                id="ruc"
-                value={suplidorActual.ruc}
-                onChange={(e) => setSuplidorActual({ ...suplidorActual, ruc: e.target.value })}
-                placeholder="131-45678-9"
-                className={errorOperacion ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                id="codigo"
+                value={suplidorActual.codigo}
+                readOnly
+                className="bg-gray-50 text-gray-500 cursor-not-allowed font-mono"
+                tabIndex={-1}
               />
             </div>
 

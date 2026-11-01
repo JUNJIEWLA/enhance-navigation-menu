@@ -1,2 +1,6 @@
 [functions.admin-create-user]
 verify_jwt = false
+
+# Consulta de RNC / Cédula en la DGII: solo usuarios con sesión iniciada
+[functions.consulta-rnc]
+verify_jwt = true
