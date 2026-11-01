@@ -632,21 +632,20 @@ export function CuentasPorPagar() {
                   ['id', 'ID Interno', ''],
                   ['ref', 'Ref. Proveedor', ''],
                   ['suplidor', 'Suplidor', ''],
-                  ['emision', 'Emisión', ''],
                   ['vencimiento', 'Vencimiento', ''],
                   ['monto', 'Monto', 'text-right'],
                   ['balance', 'Balance', 'text-right']
                 ] as const).map(([key, label, align]) => (
-                  <th key={key} className={cn("whitespace-nowrap px-3 py-2.5 font-medium", align)}>
+                  <th key={key} className={cn('px-3 py-2.5 font-medium', align)}>
                     <button
                       type="button"
                       onClick={() => ordenarPor(key)}
-                      className={cn('inline-flex items-center gap-1 uppercase hover:text-gray-900', orden.key === key && 'text-gray-900')}
+                      className={cn('group inline-flex items-center gap-1 text-left uppercase hover:text-gray-900', orden.key === key && 'text-gray-900')}
                     >
                       {label}
                       {orden.key === key
                         ? (orden.dir === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)
-                        : <ArrowUpDown className="size-3.5 opacity-40" />}
+                        : <ArrowUpDown className="hidden size-3.5 shrink-0 opacity-40 group-hover:inline" />}
                     </button>
                   </th>
                 ))}
@@ -670,11 +669,12 @@ export function CuentasPorPagar() {
                     )}
                   >
                     <td className={cn('border-l-2 px-3 py-2.5', vencida ? 'border-l-red-500' : 'border-l-transparent')}>
-                      <span className="whitespace-nowrap font-mono font-semibold text-blue-700">{factura.numeroFactura}</span>
+                      <p className="whitespace-nowrap font-semibold text-blue-700">{factura.numeroFactura}</p>
+                      <p className="whitespace-nowrap text-xs text-gray-500">{formatDateShort(factura.fechaEmision)}</p>
                     </td>
                     <td className="px-3 py-2.5">
                       {factura.numeroExterno ? (
-                        <span className="whitespace-nowrap font-mono font-semibold text-gray-900">
+                        <span className="block max-w-[150px] break-all font-semibold text-gray-900" title={factura.numeroExterno}>
                           {factura.numeroExterno}
                         </span>
                       ) : (
@@ -682,16 +682,15 @@ export function CuentasPorPagar() {
                       )}
                     </td>
                     <td className="px-3 py-2.5">
-                      <span className="block max-w-[180px] truncate font-medium text-gray-800" title={factura.suplidorNombre}>{factura.suplidorNombre}</span>
+                      <span className="block max-w-[160px] truncate font-medium text-gray-800" title={factura.suplidorNombre}>{factura.suplidorNombre}</span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-gray-600">{formatDateShort(factura.fechaEmision)}</td>
                     <td className="whitespace-nowrap px-3 py-2.5">
                       <p className={cn(vencida ? 'font-semibold text-red-600' : 'text-gray-700')}>{formatDateShort(factura.fechaVencimiento)}</p>
                       <VencimientoChip factura={factura} compact />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right">
                       <p className="text-gray-800">{formatCurrency(factura.montoTotal)}</p>
-                      <div className="ml-auto mt-1 h-1 w-20 overflow-hidden rounded-full bg-gray-100" title={`${pagadoPct}% pagado`}>
+                      <div className="ml-auto mt-1 h-1 w-16 overflow-hidden rounded-full bg-gray-100" title={`${pagadoPct}% pagado`}>
                         <div className={cn('h-full rounded-full', pagadoPct >= 100 ? 'bg-emerald-500' : 'bg-blue-500')} style={{ width: `${pagadoPct}%` }} />
                       </div>
                     </td>
@@ -746,7 +745,7 @@ export function CuentasPorPagar() {
             {facturasFiltradas.length > 0 && (
               <tfoot className="border-t bg-gray-50 text-sm">
                 <tr>
-                  <td colSpan={5} className="px-3 py-2.5 font-medium text-gray-600">
+                  <td colSpan={4} className="px-3 py-2.5 font-medium text-gray-600">
                     {`Total (${facturasFiltradas.length} factura${facturasFiltradas.length !== 1 ? 's' : ''})`}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-gray-900">{formatCurrency(totales.monto)}</td>
